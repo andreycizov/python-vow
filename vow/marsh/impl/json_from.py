@@ -1,23 +1,34 @@
 from datetime import datetime, timedelta
-from typing import Type, Any
+from typing import Type, Any, List, Tuple
 
 import pytz
-from dataclasses import dataclass
+from dataclasses import dataclass, MISSING
+from yaml.serializer import SerializerError
 
 from vow.marsh.impl.json_into import JsonIntoStruct, JsonIntoDateTime, \
-    JsonIntoDateTimeMapper
+    JsonIntoDateTimeMapper, JsonIntoStructMapper
 from vow.marsh.base import Mapper, Fields, Fac
 
 
-class JsonFromStructMapper(Mapper):
-    def __init__(self, cls: Type, dependencies: 'Fields'):
+class JsonFromStructMapper(JsonIntoStructMapper):
+
+    def __init__(self, cls: Type,
+                 fields: List[Tuple[str, bool]], dependencies: Fields):
         self.cls = cls
-        super().__init__(dependencies)
+        super().__init__(fields, dependencies)
 
     def serialize(self, obj: Any) -> Any:
         r = {}
-        for k, v in self.dependencies.items():
-            r[k] = v.serialize(obj[k])
+        for k, is_nullable in self.fields:
+            v = self.dependencies[k]
+            obj_v = obj.get(k, MISSING)
+
+            if is_nullable and obj_v == MISSING:
+                r[k] = None
+            elif obj_v == MISSING:
+                raise SerializerError(f'{k}')
+            else:
+                r[k] = v.serialize(obj_v)
 
         return self.cls(**r)
 

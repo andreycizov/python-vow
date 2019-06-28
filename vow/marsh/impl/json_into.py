@@ -1,22 +1,23 @@
 from collections import OrderedDict
-from typing import Any, Dict, List, Tuple
+from typing import Any, List, Tuple
 
 from dataclasses import dataclass
 from datetime import timedelta, datetime
 
 from vow.marsh.base import Mapper, Fac, FieldsFac, Fields
+from vow.marsh.impl.json import JsonAnyOptional
 
 
 class JsonIntoStructMapper(Mapper):
 
-    def __init__(self, fields: List[str], dependencies: Fields):
+    def __init__(self, fields: List[Tuple[str, bool]], dependencies: Fields):
         self.fields = fields
         super().__init__(dependencies)
 
     def serialize(self, obj: Any) -> Any:
         r = OrderedDict()
 
-        for k in self.fields:
+        for k, _ in self.fields:
             v = self.dependencies[k]
 
             r[k] = v.serialize(getattr(obj, k))
@@ -30,7 +31,10 @@ class JsonIntoStruct(Fac):
     fields: List[Tuple[str, Fac]]
 
     def create(self, dependencies: Fields) -> Mapper:
-        return self.__mapper_cls__(dependencies=dependencies, fields=[x for x, _ in self.fields])
+        return self.__mapper_cls__(
+            dependencies=dependencies,
+            fields=[(x, isinstance(y, JsonAnyOptional)) for x, y in self.fields]
+        )
 
     def dependencies(self) -> FieldsFac:
         return {k: v for k, v in self.fields}
