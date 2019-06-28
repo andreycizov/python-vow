@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from vow.marsh.error import SerializationError
 from xrpc.trace import trc
 
-from vow.marsh.helper import is_serializable
+from vow.marsh.helper import is_serializable, DECL_ATTR
 from vow.marsh.base import Mapper, Fac, FieldsFac, Fields
 
 
@@ -18,9 +18,10 @@ class PassthroughMapper(Mapper):
 
     def serialize(self, obj: Any) -> Any:
         if self.type is not None:
-            obj = self.type(obj)
-
-        trc().debug('%s %s', self.type, obj)
+            try:
+                obj = self.type(obj)
+            except Exception as e:
+                raise SerializationError(val=obj, reason=str(e))
 
         return obj
 
@@ -48,7 +49,7 @@ class Ref(Fac):
         r = getattr(import_module(module), item)
 
         assert is_serializable(r), r
-        return r.__serde__[name]
+        return getattr(r, DECL_ATTR)[name]
 
     def dependencies(self) -> FieldsFac:
         raise NotImplementedError('Ref.dependencies can not be called directly, must be handled outside')

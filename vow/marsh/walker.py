@@ -2,20 +2,21 @@ import inspect
 import sys
 from collections import deque
 from datetime import datetime, timedelta
+from enum import Enum
 from itertools import count
 from typing import Type, Any, List, Dict, Tuple, Union, Deque
 
-from dataclasses import is_dataclass, dataclass, fields, Field, field
+from dataclasses import is_dataclass, dataclass, fields, Field, field, MISSING
 from typing_inspect import is_optional_type, get_args, get_last_args
 
-from vow.marsh.helper import is_serializable
+from vow.marsh.helper import is_serializable, DECL_ATTR, FIELD_FACTORY, FIELD_OVERRIDE
 from xrpc.trace import trc
 
 from vow.marsh.impl.any import Passthrough, Ref
 from vow.marsh.impl.json_from import JsonFromDateTime, JsonFromTimeDelta, \
-    JsonFromStruct
+    JsonFromStruct, JsonFromEnum
 from vow.marsh.impl.json_into import JsonIntoDateTime, JsonIntoTimeDelta, \
-    JsonIntoStruct
+    JsonIntoStruct, JsonIntoEnum
 from vow.marsh.impl.json import JsonAnyList, JsonAnyDict, JsonAnyOptional
 from vow.marsh.base import Fac, Mapper
 
@@ -52,10 +53,10 @@ class Serializers:
 
     @classmethod
     def assign(cls, obj) -> 'Serializers':
-        if not hasattr(obj, '__serde__'):
-            setattr(obj, '__serde__', Serializers())
+        if not hasattr(obj, DECL_ATTR):
+            setattr(obj, DECL_ATTR, Serializers())
 
-        return obj.__serde__
+        return getattr(obj, DECL_ATTR)
 
 
 @dataclass
@@ -89,9 +90,23 @@ class Walker:
 
             for item in fields(cls):
                 item: Field
+
+                item_type = item.metadata.get(FIELD_OVERRIDE, item.type)
+                item_factory = item.metadata.get(FIELD_FACTORY, {})
+
+                if isinstance(item_factory, Fac):
+                    pass
+                elif isinstance(item_factory, dict):
+                    item_factory = item_factory.get(self.name, MISSING)
+                else:
+                    assert False, repr(item_factory)
+
+                if item_factory is MISSING:
+                    item_factory = self.resolve(item_type)
+
                 r.append((
                     item.name,
-                    self.resolve(item.type)
+                    item_factory
                 ))
 
             if self.name == 'json_from':
@@ -152,6 +167,21 @@ class Walker:
                     return JsonAnyDict(key, value)
                 else:
                     raise NotImplementedError(f'{self.name}')
+            elif issubclass(cls, Enum):
+                clss = set(item.value.__class__ for item in cls)
+
+                assert len(clss) == 1, clss
+
+                t = clss.pop()
+
+                fac = self.resolve(t)
+
+                if self.name == 'json_from':
+                    return JsonFromEnum(cls, fac)
+                elif self.name == 'json_into':
+                    return JsonIntoEnum(cls, fac)
+                else:
+                    raise NotImplementedError(('class4', cls))
             elif is_dataclass(cls):
                 return Ref(cls.__module__ + '.' + cls.__name__)
             else:
