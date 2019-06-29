@@ -19,12 +19,6 @@ class Immaterial(Type):
 
 
 @dataclass
-class Named:
-    """(possibly) self-referential type"""
-    name: str
-
-
-@dataclass
 class Ref(Immaterial):
     """can only reference Named types"""
     name: str
@@ -33,21 +27,6 @@ class Ref(Immaterial):
 @dataclass
 class Var(Immaterial):
     name: str
-
-
-@dataclass
-class Date(Material):
-    pass
-
-
-@dataclass
-class TimeDelta(Material):
-    pass
-
-
-@dataclass
-class DateTime(Material):
-    pass
 
 
 @dataclass
@@ -62,7 +41,7 @@ class String(Material):
 
 @dataclass
 class Tuple(Material):
-    items: typing.List[Type]
+    items: typing.List[Type] = field(default_factory=list)
 
 
 @dataclass
@@ -77,19 +56,12 @@ class Dict(Material):
 
 
 @dataclass
-class Struct(Named, Material):
-    fields: typing.Dict[str, Type]
+class Struct(Material):
+    fields: typing.Dict[str, Type] = field(default_factory=dict)
 
 
 @dataclass
-class Custom(Named, Material):
+class Class(Material):
     """Any custom class simply copies the structure of one of the types"""
-    subtype: Type
+    name: str
 
-
-@dataclass
-class Tuple(Material):
-    values: typing.List[Type] = field(default_factory=list)
-
-    def __init__(self, *args: Type):
-        self.values = list(args)

@@ -99,14 +99,22 @@ class Cancel:
 @infer(JSON_INTO, JSON_FROM)
 @dataclass
 class Start:
+    max_inflight: int
     body: JsonAny = field(default=None, metadata={FIELD_FACTORY: JsonAnyAny()})
 
 
 @infer(JSON_INTO, JSON_FROM)
 @dataclass
-class Iteration:
+class Step:
     index: int
     body: JsonAny = field(default=None, metadata={FIELD_FACTORY: JsonAnyAny()})
+
+
+@infer(JSON_INTO, JSON_FROM)
+@dataclass
+class StepAck:
+    index: int
+    max_inflight: Optional[int] = None
 
 
 @infer(JSON_INTO, JSON_FROM)
