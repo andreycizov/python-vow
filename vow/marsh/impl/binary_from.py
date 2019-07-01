@@ -1,7 +1,8 @@
-from typing import Tuple
+from typing import Tuple, Any
 
 from vow.marsh import Fac, Mapper, SerializationError
-from xrpc.trace import trc
+
+BUFFER_NEEDED = 'buffer_overrun'
 
 
 class BinaryFromVarIntMapper(Mapper):
@@ -14,21 +15,15 @@ class BinaryFromVarIntMapper(Mapper):
         i = 0
         curr = obj
 
-        trc('1').debug('%s', obj)
-
         while True:
             if len(curr) == 0:
-                raise SerializationError(val=obj, reason='buffer_overrun')
+                raise SerializationError(val=obj, reason=BUFFER_NEEDED)
 
             item, curr = curr[0], curr[1:]
-
-            trc('2').debug(f'{r} {item} {r << 7:b} {item:b} {item & 127:b}')
 
             r = r | ((item & 127) << (7 * i))
 
             i += 1
-
-            trc('3').debug(f'{r}')
 
             if item & 128 == 0:
                 break
@@ -38,3 +33,23 @@ class BinaryFromVarIntMapper(Mapper):
 
 class BinaryFromVarInt(Fac):
     __mapper_cls__ = BinaryFromVarIntMapper
+
+
+class BinaryFromBytesMapper(Mapper):
+    def serialize(self, obj: Tuple[int, bytes]) -> Tuple[bytes, bytes]:
+        size, body = obj
+
+        if not isinstance(size, int):
+            raise SerializationError(val=obj, reason='not_int')
+
+        if not isinstance(body, bytes):
+            raise SerializationError(val=obj, reason='not_bytes')
+
+        if len(body) < size:
+            raise SerializationError(val=obj, reason=BUFFER_NEEDED)
+
+        return body[:size], body[size:]
+
+
+class BinaryFromBytes(Fac):
+    __mapper_cls__ = BinaryFromBytesMapper

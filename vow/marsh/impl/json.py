@@ -3,7 +3,7 @@ from typing import Any
 from dataclasses import dataclass
 
 from vow.marsh.error import SerializationError
-from vow.marsh.base import Mapper, Fac, FieldsFac
+from vow.marsh.base import Mapper, Fac, FieldsFac, Fields
 
 JSON_FROM = 'json_from'
 JSON_INTO = 'json_into'
@@ -121,3 +121,33 @@ class JsonAnyAnyMapper(Mapper):
 @dataclass
 class JsonAnyAny(Fac):
     __mapper_cls__ = JsonAnyAnyMapper
+
+
+@dataclass
+class JsonAnyFieldMapper(Mapper):
+
+    def __init__(self, name: str, dependencies: Fields):
+        self.name = name
+        super().__init__(dependencies)
+
+    def serialize(self, obj: Any) -> Any:
+        v = self.dependencies['item']
+
+        try:
+            obj = v.serialize(obj)
+        except SerializationError as e:
+            raise e.with_path(self.name, '$item')
+
+        return self.name, obj
+
+
+@dataclass
+class JsonAnyField(Fac):
+    __mapper_cls__ = JsonAnyFieldMapper
+    __mapper_args__ = 'name',
+
+    name: str
+    serializer: Fac
+
+    def dependencies(self) -> FieldsFac:
+        return {'item': self.serializer}

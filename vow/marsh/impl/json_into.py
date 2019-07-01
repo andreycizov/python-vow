@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from enum import Enum
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, Optional
 
 from dataclasses import dataclass, field
 from datetime import timedelta, datetime
@@ -8,7 +8,6 @@ from datetime import timedelta, datetime
 from vow.marsh.error import SerializationError
 from vow.marsh.base import Mapper, Fac, FieldsFac, Fields
 from vow.marsh.impl.any import Passthrough
-from vow.marsh.impl.json import JsonAnyOptional
 
 
 class JsonIntoStructMapper(Mapper):
@@ -24,9 +23,11 @@ class JsonIntoStructMapper(Mapper):
             v = self.dependencies[k]
 
             try:
-                r[k] = v.serialize(getattr(obj, k))
+                name, val = v.serialize(obj)
             except SerializationError as e:
                 raise e.with_path(k)
+
+            r[name] = val
         return r
 
 
@@ -34,16 +35,16 @@ class JsonIntoStructMapper(Mapper):
 class JsonIntoStruct(Fac):
     __mapper_cls__ = JsonIntoStructMapper
 
-    fields: List[Tuple[str, Fac]]
+    fields: List[Tuple[Optional[str], bool, Fac]]
 
     def create(self, dependencies: Fields) -> Mapper:
         return self.__mapper_cls__(
             dependencies=dependencies,
-            fields=[(x, isinstance(y, JsonAnyOptional)) for x, y in self.fields]
+            fields=[(str(i) if n is None else n, x) for i, (n, x, _) in enumerate(self.fields)]
         )
 
     def dependencies(self) -> FieldsFac:
-        return {k: v for k, v in self.fields}
+        return {str(i) if n is None else n: v for i, (n, _, v) in enumerate(self.fields)}
 
 
 class JsonIntoEnumMapper(Mapper):

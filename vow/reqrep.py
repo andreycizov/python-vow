@@ -1,12 +1,14 @@
 import json
-import struct
 from enum import Enum
-from typing import Optional
+from typing import Optional, Any, Tuple
 
 from dataclasses import dataclass, field
 
-from vow.marsh import infer
+from vow.marsh import infer, Fac, SerializationError
+from vow.marsh.base import FieldsFac, Mapper
 from vow.marsh.helper import FIELD_FACTORY
+from vow.marsh.impl.binary_from import BinaryFromVarInt, BinaryFromBytes
+from vow.marsh.impl.binary_into import BinaryIntoVarInt
 from vow.marsh.impl.json import JSON_FROM, JSON_INTO, JsonAnyAny
 from vow.marsh.walker import Walker
 from vow.oas.data import JsonAny
@@ -37,6 +39,46 @@ class Type(Enum):
 
 # basically anything that contains JsonAnyAny as a field
 # is an envelope.
+
+class BinaryFromFrameMapper(Mapper):
+
+    def serialize(self, obj: bytes) -> Tuple['Frame', bytes]:
+        size, obj = self.dependencies['varint'].serialize(obj)
+        body, obj = self.dependencies['bytes'].serialize((size, obj))
+
+        try:
+            body = json.loads(body)
+        except json.JSONDecodeError as e:
+            raise SerializationError(val=body, reason=f'json:{e}')
+
+        return Frame(body), obj
+
+
+class BinaryFromFrame(Fac):
+    __mapper_cls__ = BinaryFromFrameMapper
+
+    def dependencies(self) -> FieldsFac:
+        return {'varint': BinaryFromVarInt(), 'bytes': BinaryFromBytes()}
+
+
+class BinaryIntoFrameMapper(Mapper):
+
+    def serialize(self, obj: 'Frame') -> bytes:
+        try:
+            body = json.dumps(obj.body).encode('utf-8')
+        except Exception as e:
+            raise SerializationError(val=obj, reason=f'json:{e}')
+
+        size = self.dependencies['varint'].serialize(len(body))
+
+        return size + body
+
+
+class BinaryIntoFrame(Fac):
+    __mapper_cls__ = BinaryIntoFrameMapper
+
+    def dependencies(self) -> FieldsFac:
+        return {'varint': BinaryIntoVarInt()}
 
 
 @dataclass

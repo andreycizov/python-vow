@@ -2,10 +2,9 @@ from datetime import datetime, timedelta
 from typing import Type, Any, List, Tuple
 
 import pytz
-from dataclasses import dataclass, MISSING
+from dataclasses import dataclass
 
 from vow.marsh.error import SerializationError
-from vow.marsh.impl.json import JsonAnyOptional
 from vow.marsh.impl.json_into import JsonIntoStruct, JsonIntoDateTime, \
     JsonIntoDateTimeMapper, JsonIntoStructMapper, JsonIntoEnumMapper, JsonIntoEnum
 from vow.marsh.base import Mapper, Fields, Fac
@@ -22,18 +21,13 @@ class JsonFromStructMapper(JsonIntoStructMapper):
         r = {}
         for k, is_nullable in self.fields:
             v = self.dependencies[k]
-            obj_v = obj.get(k, MISSING)
 
-            if is_nullable and obj_v == MISSING:
-                r[k] = None
-            elif obj_v == MISSING:
-                raise SerializationError(path=[k], reason='missing not optional')
-            else:
-                try:
-                    r[k] = v.serialize(obj_v)
-                except SerializationError as e:
-                    raise e.with_path(k)
+            try:
+                name, val = v.serialize(obj)
+            except SerializationError as e:
+                raise e.with_path(k)
 
+            r[name] = val
         return self.cls(**r)
 
 
@@ -44,10 +38,10 @@ class JsonFromStruct(JsonIntoStruct):
     cls: Type
 
     def create(self, dependencies: Fields) -> Mapper:
-        return JsonFromStructMapper(
-            self.cls,
-            [(x, isinstance(y, JsonAnyOptional)) for x, y in self.fields],
-            dependencies
+        return self.__mapper_cls__(
+            cls=self.cls,
+            dependencies=dependencies,
+            fields=[(str(i) if n is None else n, x) for i, (n, x, _) in enumerate(self.fields)]
         )
 
 

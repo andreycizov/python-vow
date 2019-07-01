@@ -4,6 +4,8 @@ from datetime import timedelta
 from typing import Optional
 
 from dataclasses import dataclass
+
+from vow.marsh import SerializationError
 from xrpc.trace import trc
 
 from vow.marsh.walker import Walker
@@ -14,14 +16,14 @@ from vow.marsh.impl.json_from import JsonFromTimeDelta
 from vow.marsh.impl.json_into import JsonIntoStruct
 
 
-@infer(JSON_INTO)
+@infer(JSON_INTO, JSON_FROM)
 @dataclass
 class Amber:
     a: int
     b: 'Bulky'
 
 
-@infer(JSON_INTO)
+@infer(JSON_INTO, JSON_FROM)
 @dataclass
 class Bulky:
     b: Optional[Amber] = None
@@ -62,15 +64,15 @@ class TestApi(unittest.TestCase):
 
         self.assertEqual(
             JsonIntoStruct([
-                ('a', Passthrough(int))
+                (False, Passthrough(int))
             ]),
             A.__serde__[JSON_INTO],
         )
 
         self.assertEqual(
             JsonIntoStruct([
-                ('a', Passthrough(int)),
-                ('b', Ref(__name__ + '.A')),
+                (False, Passthrough(int)),
+                (True, Ref(__name__ + '.A')),
             ]),
             B.__serde__[JSON_INTO],
         )
@@ -89,13 +91,13 @@ class TestApi(unittest.TestCase):
 
         self.assertEqual(
             JsonIntoStruct([
-                ('a', Passthrough(int)),
-                ('b', Ref(__name__ + '.B')),
+                (False, Passthrough(int)),
+                (True, Ref(__name__ + '.B')),
             ]),
             A.__serde__[JSON_INTO],
         )
 
-    def test_mapper(self):
+    def test_mapper_into(self):
         ctx = Walker(JSON_INTO)
         fac = ctx.resolve(Amber)
         mapper, = ctx.mappers(fac)
@@ -110,12 +112,43 @@ class TestApi(unittest.TestCase):
             mapper.serialize(Amber(555, Bulky()))
         )
 
+        try:
+            self.assertEqual(
+                {
+                    'a': 'asd',
+                    'b': {
+                        'b': None
+                    }
+                },
+                mapper.serialize(Amber('asd', Bulky()))
+            )
+        except SerializationError as e:
+            self.assertEqual(['a', 'a', '$item', '$type'], e.path)
+
+    def test_mapper_from(self):
+        ctx = Walker(JSON_FROM)
+        fac = ctx.resolve(Amber)
+        mapper, = ctx.mappers(fac)
+
         self.assertEqual(
-            {
-                'a': 'asd',
+            Amber(555, Bulky()),
+            mapper.serialize({
+                'a': 555,
                 'b': {
                     'b': None
                 }
-            },
-            mapper.serialize(Amber('asd', Bulky()))
+            })
         )
+
+        try:
+            self.assertEqual(
+                Amber('asd', Bulky()),
+                mapper.serialize({
+                    'a': 'asd',
+                    'b': {
+                        'b': None
+                    }
+                })
+            )
+        except SerializationError as e:
+            self.assertEqual(['a', 'a', '$item', '$type'], e.path)

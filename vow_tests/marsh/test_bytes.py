@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from vow.marsh.impl.binary_from import BinaryFromVarInt

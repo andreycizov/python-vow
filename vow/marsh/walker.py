@@ -10,14 +10,13 @@ from dataclasses import is_dataclass, dataclass, fields, Field, field, MISSING
 from typing_inspect import is_optional_type, get_args, get_last_args
 
 from vow.marsh.helper import is_serializable, DECL_ATTR, FIELD_FACTORY, FIELD_OVERRIDE
-from xrpc.trace import trc
 
-from vow.marsh.impl.any import Passthrough, Ref
+from vow.marsh.impl.any import Passthrough, Ref, AnyAnyAttr, AnyAnyItem
 from vow.marsh.impl.json_from import JsonFromDateTime, JsonFromTimeDelta, \
     JsonFromStruct, JsonFromEnum
 from vow.marsh.impl.json_into import JsonIntoDateTime, JsonIntoTimeDelta, \
     JsonIntoStruct, JsonIntoEnum
-from vow.marsh.impl.json import JsonAnyList, JsonAnyDict, JsonAnyOptional
+from vow.marsh.impl.json import JsonAnyList, JsonAnyDict, JsonAnyOptional, JsonAnyField
 from vow.marsh.base import Fac, Mapper
 
 if sys.version_info >= (3, 7):
@@ -86,7 +85,7 @@ class Walker:
         if isinstance(cls, DataclassWrapper):
             cls = cls.type
             assert is_dataclass(cls), cls
-            r: List[Tuple[str, Fac]] = []
+            r: List[Tuple[str, bool, Fac]] = []
 
             for item in fields(cls):
                 item: Field
@@ -104,10 +103,32 @@ class Walker:
                 if item_factory is MISSING:
                     item_factory = self.resolve(item_type)
 
-                r.append((
-                    item.name,
-                    item_factory
-                ))
+                if self.name == 'json_from':
+                    r.append((
+                        item.name,
+                        item.default is not MISSING,
+                        JsonAnyField(
+                            item.name,
+                            AnyAnyItem(
+                                item.name,
+                                item_factory
+                            )
+                        )
+                    ))
+                elif self.name == 'json_into':
+                    r.append((
+                        item.name,
+                        item.default is not MISSING,
+                        JsonAnyField(
+                            item.name,
+                            AnyAnyAttr(
+                                item.name,
+                                item_factory
+                            )
+                        )
+                    ))
+                else:
+                    raise NotImplementedError((self.name, None))
 
             if self.name == 'json_from':
                 return JsonFromStruct(
@@ -283,5 +304,3 @@ class Walker:
         root_mappers = [node_mapper[node_id] for node_id in root_nodes]
 
         return root_mappers
-
-

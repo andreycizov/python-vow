@@ -1,5 +1,5 @@
 from importlib import import_module
-from typing import Any, Type, Optional
+from typing import Any, Type, Optional, Dict
 
 from dataclasses import dataclass
 
@@ -40,6 +40,66 @@ class Passthrough(Fac):
     type: Optional[Type] = None
 
 
+class AnyAnyAttrMapper(Mapper):
+
+    def __init__(self, name: str, dependencies: Fields):
+        self.name = name
+        super().__init__(dependencies)
+
+    def serialize(self, obj: Any) -> Any:
+        try:
+            r = getattr(obj, self.name)
+        except AttributeError:
+            raise SerializationError(val=obj, reason=f'`{self.name}`')
+
+        try:
+            return self.dependencies['type'].serialize(r)
+        except SerializationError as e:
+            raise e.with_path('$type')
+
+
+@dataclass()
+class AnyAnyAttr(Fac):
+    __mapper_cls__ = AnyAnyAttrMapper
+    __mapper_args__ = 'name',
+
+    name: str
+    type: Fac
+
+    def dependencies(self) -> FieldsFac:
+        return {'type': self.type}
+
+
+class AnyAnyItemMapper(Mapper):
+
+    def __init__(self, name: str, dependencies: Fields):
+        self.name = name
+        super().__init__(dependencies)
+
+    def serialize(self, obj: Any) -> Any:
+        try:
+            r = obj[self.name]
+        except KeyError:
+            raise SerializationError(val=obj, reason=f'`{self.name}`')
+
+        try:
+            return self.dependencies['type'].serialize(r)
+        except SerializationError as e:
+            raise e.with_path('$type')
+
+
+@dataclass()
+class AnyAnyItem(Fac):
+    __mapper_cls__ = AnyAnyItemMapper
+    __mapper_args__ = 'name',
+
+    name: str
+    type: Fac
+
+    def dependencies(self) -> FieldsFac:
+        return {'type': self.type}
+
+
 @dataclass
 class Ref(Fac):
     item: str
@@ -53,3 +113,11 @@ class Ref(Fac):
 
     def dependencies(self) -> FieldsFac:
         raise NotImplementedError('Ref.dependencies can not be called directly, must be handled outside')
+
+
+@dataclass
+class AnyAnyDisciminant(Fac):
+    value: Fac
+    mappers: Dict[Any, Fac]
+
+
