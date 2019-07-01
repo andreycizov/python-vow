@@ -1,11 +1,9 @@
 from importlib import import_module
-from typing import Any, Type, Optional, Dict
+from typing import Any, Type, Optional, Dict, Tuple, List
 
 from dataclasses import dataclass
 
 from vow.marsh.error import SerializationError
-from xrpc.trace import trc
-
 from vow.marsh.helper import is_serializable, DECL_ATTR
 from vow.marsh.base import Mapper, Fac, FieldsFac, Fields
 
@@ -115,9 +113,39 @@ class Ref(Fac):
         raise NotImplementedError('Ref.dependencies can not be called directly, must be handled outside')
 
 
+class AnyAnyDiscriminantMapper(Mapper):
+
+    def __init__(self, items: Dict[Any, str], dependencies: Fields):
+        self.items = items
+        super().__init__(dependencies)
+
+    def serialize(self, obj: Any) -> Any:
+        try:
+            val = self.dependencies['value'].serialize(obj)
+        except SerializationError as e:
+            raise e.with_path('$value')
+
+        if val not in self.items:
+            raise SerializationError(val=obj, path=['$value'], reason=f'`{val}` is not in the map')
+
+        try:
+            return self.dependencies[self.items[val]].serialize(obj)
+        except SerializationError as e:
+            raise e.with_path('$sub')
+
+
 @dataclass
-class AnyAnyDisciminant(Fac):
+class AnyAnyDiscriminant(Fac):
+    __mapper_cls__ = AnyAnyDiscriminantMapper
     value: Fac
-    mappers: Dict[Any, Fac]
+    mappers: List[Tuple[Any, Fac]]
 
+    def create(self, dependencies: Fields) -> Mapper:
+        return self.__mapper_cls__(items={
+            x: str(i) for i, (x, _) in enumerate(self.mappers)
+        }, dependencies=dependencies)
 
+    def dependencies(self) -> FieldsFac:
+        r = {str(i): x for i, (_, x) in enumerate(self.mappers)}
+        r['value'] = self.value
+        return r
