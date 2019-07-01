@@ -5,7 +5,7 @@ from typing import Any, List, Tuple
 from dataclasses import dataclass, field
 from datetime import timedelta, datetime
 
-from vow.marsh import SerializationError
+from vow.marsh.error import SerializationError
 from vow.marsh.base import Mapper, Fac, FieldsFac, Fields
 from vow.marsh.impl.any import Passthrough
 from vow.marsh.impl.json import JsonAnyOptional

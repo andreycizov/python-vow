@@ -1,3 +1,5 @@
+import json
+import struct
 from enum import Enum
 from typing import Optional
 
@@ -6,6 +8,7 @@ from dataclasses import dataclass, field
 from vow.marsh import infer
 from vow.marsh.helper import FIELD_FACTORY
 from vow.marsh.impl.json import JSON_FROM, JSON_INTO, JsonAnyAny
+from vow.marsh.walker import Walker
 from vow.oas.data import JsonAny
 
 
@@ -29,11 +32,17 @@ class Type(Enum):
     # if request has many items to reply with, then each reply is an iteration
     Iteration = 'cont'
     # an end either means "end of iteration" or
-    End = 'reply'
+    End = 'end'
 
 
 # basically anything that contains JsonAnyAny as a field
 # is an envelope.
+
+
+@dataclass
+class Frame:
+    body: JsonAny = field(default=None, metadata={FIELD_FACTORY: JsonAnyAny()})
+
 
 @infer(JSON_INTO, JSON_FROM)
 @dataclass
@@ -121,3 +130,9 @@ class StepAck:
 @dataclass
 class End:
     body: JsonAny = field(default=None, metadata={FIELD_FACTORY: JsonAnyAny()})
+
+
+WALKER_JSON_INTO = Walker(JSON_INTO)
+WALKER_JSON_FROM = Walker(JSON_FROM)
+PACKET_MAPPER_INTO, = WALKER_JSON_INTO.mappers(WALKER_JSON_INTO.resolve(Packet))
+PACKET_MAPPER_FROM, = WALKER_JSON_FROM.mappers(WALKER_JSON_FROM.resolve(Packet))

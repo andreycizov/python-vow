@@ -2,7 +2,7 @@ from typing import Any
 
 from dataclasses import dataclass
 
-from vow.marsh import SerializationError
+from vow.marsh.error import SerializationError
 from vow.marsh.base import Mapper, Fac, FieldsFac
 
 JSON_FROM = 'json_from'
@@ -111,6 +111,8 @@ class JsonAnyAnyMapper(Mapper):
         elif isinstance(obj, float):
             return obj
         elif isinstance(obj, int):
+            return obj
+        elif obj is None:
             return obj
         else:
             raise SerializationError(val=obj, reason='not_json_value')

@@ -198,7 +198,10 @@ class Walker:
             return self.resolve(t)
         else:
             if is_optional_type(cls):
-                item, _ = get_last_args(cls)
+                if sys.version_info >= (3, 7):
+                    item, _ = get_args(cls)
+                else:
+                    item, _ = get_last_args(cls)
 
                 value = self.resolve(item)
 

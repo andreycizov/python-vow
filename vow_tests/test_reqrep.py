@@ -29,6 +29,6 @@ class TestRequests(unittest.TestCase):
                                       ('stream', None),
                                       ('body', {'a': [{'a': 'c'}]})]), out1)
 
-        trc().debug()
+        trc().debug('')
 
         self.assertEqual(pkt, out2)

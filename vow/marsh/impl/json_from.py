@@ -4,7 +4,7 @@ from typing import Type, Any, List, Tuple
 import pytz
 from dataclasses import dataclass, MISSING
 
-from vow.marsh import SerializationError
+from vow.marsh.error import SerializationError
 from vow.marsh.impl.json import JsonAnyOptional
 from vow.marsh.impl.json_into import JsonIntoStruct, JsonIntoDateTime, \
     JsonIntoDateTimeMapper, JsonIntoStructMapper, JsonIntoEnumMapper, JsonIntoEnum

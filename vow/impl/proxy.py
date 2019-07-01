@@ -1,11 +1,15 @@
 import asyncio
+import inspect
 import json
 import struct
 from argparse import ArgumentParser
 from asyncio import StreamReader
 from typing import Optional, Iterable, AsyncIterable
 
+from vow.marsh.impl.json import JSON_INTO
+from vow.marsh.walker import Walker
 from vow.oas.data import JsonAny
+from vow.reqrep import Packet, Type
 from xrpc.logging import logging_parser, cli_main
 from xrpc.trace import trc
 
@@ -43,7 +47,7 @@ async def frame_decoder(reader: StreamReader, per_read=2048) -> AsyncIterable[by
 
 async def json_frame_decoder(iter: AsyncIterable[bytes]) -> AsyncIterable[JsonAny]:
     async for x in iter:
-        yield json.loads(x)
+        yield Packet.unpack(x)
 
 
 async def handle_client(reader, writer):
@@ -141,13 +145,17 @@ async def main_client(addr):
     trc().debug('%s', 'created')
     await asyncio.sleep(0.33)
 
+    fac = Walker(JSON_INTO)
+
+    mapper, = fac.mappers(fac.resolve(Packet))
+
     trc().debug('%s', 'connecting')
 
     (reader, writer) = await asyncio.open_connection(host, port)
 
     trc().debug('%s', 'connecting')
 
-    writer.write(b'\x00\x00\x00\x015')
+    writer.write(Packet(Type.Header).pack())
 
     await asyncio.sleep(5)
     await writer.drain()
@@ -155,7 +163,7 @@ async def main_client(addr):
     trc().debug('%s', 'exit')
 
 
-async def async_main():
+async def main_async():
     addr = ('127.0.0.1', 8888)
     task1 = asyncio.create_task(main_server(addr))
     task2 = asyncio.create_task(main_client(addr))
@@ -164,7 +172,14 @@ async def async_main():
 
 
 def main(**kwargs):
-    asyncio.run(async_main())
+    async def googly():
+        pass
+
+    r = inspect.getfullargspec(googly)
+
+    trc('brute').debug('%s', r)
+
+    asyncio.run(main_async())
 
 
 def parser():
@@ -173,7 +188,6 @@ def parser():
     logging_parser(parser)
 
     return parser
-
 
 if __name__ == '__main__':
     cli_main(main, parser())

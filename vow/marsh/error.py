@@ -11,7 +11,11 @@ class SerializationError(Exception):
         super().__init__(**kwargs)
 
     def __repr__(self) -> str:
-        return f'{self.__class__.__name__}({self.path}, val=`{repr(self.val)}`)'
+        return f'{self.__class__.__name__}({self.path}, val=`{repr(self.val)}`, reason=`{self.reason}`)'
+
+    def __str__(self) -> str:
+        return repr(self)
 
     def with_path(self, *path):
+        path = list(path)
         return SerializationError(path=path + self.path, val=self.val, reason=self.reason)
