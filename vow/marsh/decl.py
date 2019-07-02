@@ -1,8 +1,9 @@
 import inspect
-from typing import List
+from typing import List, Type, Any, Callable
 
 from dataclasses import dataclass, is_dataclass, field
 
+from vow.marsh.base import Mapper
 from vow.marsh.walker import Walker, Serializers, Deferred
 
 
@@ -22,3 +23,11 @@ class infer:
             serde[ctx.name] = Deferred(ctx, obj)
 
         return obj
+
+
+def get_serializers(name: str, *clss: Type) -> List[Mapper]:
+    walker = Walker(name)
+
+    factories = [walker.resolve(cls) for cls in clss]
+
+    return walker.mappers(*factories)

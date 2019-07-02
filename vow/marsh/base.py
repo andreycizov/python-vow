@@ -13,6 +13,9 @@ class Mapper:
     def serialize(self, obj: Any) -> Any:
         raise NotImplementedError('')
 
+    def __call__(self, obj: Any) -> Any:
+        return self.serialize(obj)
+
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}()'
 

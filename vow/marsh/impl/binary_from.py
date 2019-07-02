@@ -4,10 +4,8 @@ from typing import Tuple, Any
 from dataclasses import dataclass
 
 from vow.marsh.base import FieldsFac, Mapper, Fac
-from vow.marsh.error import subserializer, SerializationError
+from vow.marsh.error import subserializer, SerializationError, BUFFER_NEEDED
 from vow.marsh.impl.binary import BinaryNext
-
-BUFFER_NEEDED = 'buffer_overrun'
 
 
 class BinaryFromVarIntMapper(Mapper):

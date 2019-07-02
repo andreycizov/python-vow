@@ -5,6 +5,8 @@ from dataclasses import MISSING, dataclass, replace, field, fields
 
 from vow.marsh.base import Mapper
 
+BUFFER_NEEDED = 'buffer_overrun'
+
 
 @dataclass
 class SerializationError(Exception):
