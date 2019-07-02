@@ -1,8 +1,16 @@
 import json
 import unittest
 
-from vow.marsh.impl.binary_from import BinaryFromVarInt
-from vow.marsh.impl.binary_into import BinaryIntoVarInt
+from xrpc.trace import trc
+
+from vow.marsh.error import SerializationError
+from vow.marsh.impl.any import AnyAnyWith, AnyAnyItem, Passthrough, AnyAnyField, AnyAnyAttr, AnyAnyLen
+from vow.marsh.impl.any_from import AnyFromStruct
+from vow.marsh.impl.any_into import AnyIntoStruct
+from vow.marsh.impl.binary import BINARY_FROM, BinaryNext, BINARY_INTO
+from vow.marsh.impl.binary_from import BinaryFromVarInt, BinaryFromBytes, BinaryFromJson, BUFFER_NEEDED
+from vow.marsh.impl.binary_into import BinaryIntoVarInt, BinaryIntoJson, BinaryIntoConcat
+from vow.marsh.walker import Walker
 
 
 def conv(x: bytes):
@@ -51,36 +59,92 @@ class TestBytes(unittest.TestCase):
         mapper = BinaryFromVarInt().create({})
 
         self.assertEqual(
-            (0, b''),
+            BinaryNext(0, b''),
             mapper.serialize(b'\x00'),
         )
 
         self.assertEqual(
-            (300, b''),
+            BinaryNext(300, b''),
             mapper.serialize(bytes([0b10101100, 0b00000010])),
         )
 
         self.assertEqual(
-            (127, b''),
+            BinaryNext(127, b''),
             mapper.serialize(b'\x7f'),
         )
 
         self.assertEqual(
-            (128, b''),
+            BinaryNext(128, b''),
             mapper.serialize(bytes([0b10000000, 1])),
         )
 
         self.assertEqual(
-            (2 ** 14, b''),
+            BinaryNext(2 ** 14, b''),
             mapper.serialize(bytes([0b10000000, 0b10000000, 1])),
         )
 
         self.assertEqual(
-            (2 ** 14 - 1, b''),
+            BinaryNext(2 ** 14 - 1, b''),
             mapper.serialize(bytes([0b11111111, 0b01111111])),
         )
 
         self.assertEqual(
-            (2 ** 14 - 1, b'\x00'),
+            BinaryNext(2 ** 14 - 1, b'\x00'),
             mapper.serialize(bytes([0b11111111, 0b01111111, 0])),
+        )
+
+    def test_body_1(self):
+        fac_from = AnyAnyWith(
+            BinaryFromVarInt(),
+            AnyAnyWith(
+                BinaryFromBytes(
+                    AnyAnyAttr('val', Passthrough(int)),
+                    AnyAnyAttr('next', Passthrough())
+                ),
+                AnyFromStruct(
+                    [
+                        ('val', False, AnyAnyField(
+                            'val',
+                            BinaryFromJson(
+                                AnyAnyAttr('val')
+                            )
+                        )),
+                        ('next', False, AnyAnyField('next', AnyAnyAttr('next')))
+                    ],
+                    cls=BinaryNext
+                )
+            )
+        )
+
+        fac_into = AnyAnyWith(
+            BinaryIntoJson(Passthrough()),
+            BinaryIntoConcat([
+                AnyAnyWith(
+                    AnyAnyLen(Passthrough()),
+                    BinaryIntoVarInt(),
+                ),
+                Passthrough()
+            ])
+        )
+
+        bin_from, = Walker(BINARY_FROM).mappers(fac_from)
+        bin_into, = Walker(BINARY_INTO).mappers(fac_into)
+
+        x = bin_from.serialize(b'\x02{}abc')
+
+        trc('0').debug(x)
+
+        self.assertEqual(
+            BinaryNext({}, b'abc'),
+            x,
+        )
+
+        try:
+            x = bin_from.serialize(b'\x55{}abc')
+        except SerializationError as e:
+            self.assertEqual(BUFFER_NEEDED, e.reason)
+
+        self.assertEqual(
+            b'\x04null',
+            bin_into.serialize(None)
         )

@@ -1,10 +1,9 @@
 import asyncio
 import inspect
-import json
 import struct
 from argparse import ArgumentParser
 from asyncio import StreamReader
-from typing import Optional, Iterable, AsyncIterable
+from typing import AsyncIterable
 
 from vow.marsh.impl.json import JSON_INTO
 from vow.marsh.walker import Walker

@@ -1,8 +1,9 @@
+from contextlib import contextmanager
 from typing import List, Optional, Any
 
 from dataclasses import MISSING, dataclass, replace, field, fields
 
-from vow.marsh import Mapper
+from vow.marsh.base import Mapper
 
 
 @dataclass
@@ -28,3 +29,11 @@ class SerializationError(Exception):
 
     def with_path(self, *path):
         return replace(self, path=list(path) + self.path)
+
+
+@contextmanager
+def subserializer(*path):
+    try:
+        yield
+    except SerializationError as e:
+        raise e.with_path(*path)

@@ -143,7 +143,7 @@ class Walker:
             else:
                 raise NotImplementedError((self.name, None))
         elif is_serializable(cls):
-            return Ref(cls.__module__ + '.' + cls.__name__)
+            return Ref(self.name, cls.__module__ + '.' + cls.__name__)
         elif inspect.isclass(cls):
             if issubclass(cls, bool):
                 return Passthrough(bool)
@@ -205,7 +205,7 @@ class Walker:
                 else:
                     raise NotImplementedError(('class4', cls))
             elif is_dataclass(cls):
-                return Ref(cls.__module__ + '.' + cls.__name__)
+                return Ref(self.name, cls.__module__ + '.' + cls.__name__)
             else:
                 raise NotImplementedError(('class2', cls))
         elif isinstance(cls, ForwardRef):

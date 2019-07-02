@@ -1,10 +1,10 @@
 from importlib import import_module
 from typing import Any, Type, Optional, Dict, Tuple, List
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from xrpc.trace import trc
 
-from vow.marsh.error import SerializationError
+from vow.marsh.error import SerializationError, subserializer
 from vow.marsh.helper import is_serializable, DECL_ATTR
 from vow.marsh.base import Mapper, Fac, FieldsFac, Fields
 
@@ -57,10 +57,13 @@ class AnyAnyAttrMapper(Mapper):
         except AttributeError as e:
             raise SerializationError(val=obj, reason=f'attr_missing', origin=self, exc=e)
 
-        try:
-            return self.dependencies['type'].serialize(r)
-        except SerializationError as e:
-            raise e.with_path('$attr')
+        if len(self.dependencies):
+            try:
+                return self.dependencies['type'].serialize(r)
+            except SerializationError as e:
+                raise e.with_path('$attr')
+        else:
+            return r
 
 
 @dataclass()
@@ -69,10 +72,13 @@ class AnyAnyAttr(Fac):
     __mapper_args__ = 'name',
 
     name: str
-    type: Fac
+    type: Optional[Fac] = None
 
     def dependencies(self) -> FieldsFac:
-        return {'type': self.type}
+        if self.type:
+            return {'type': self.type}
+        else:
+            return {}
 
 
 class AnyAnyItemMapper(Mapper):
@@ -86,8 +92,6 @@ class AnyAnyItemMapper(Mapper):
             r = obj[self.name]
         except KeyError as e:
             raise SerializationError(val=obj, reason='key_missing', exc=e, origin=self)
-
-        trc('anyanyitemmap').debug('%s', r)
 
         try:
             return self.dependencies['type'].serialize(r)
@@ -109,9 +113,11 @@ class AnyAnyItem(Fac):
 
 @dataclass
 class Ref(Fac):
+    name: str
     item: str
 
-    def __init__(self, item):
+    def __init__(self, name, item):
+        self.name = name
         if isinstance(item, str):
             self.item = item
         else:
@@ -205,6 +211,23 @@ class AnyAnyField(Fac):
 
     def dependencies(self) -> FieldsFac:
         return {'item': self.serializer}
+
+
+class AnyAnyLenMapper(Mapper):
+
+    def serialize(self, obj: Any) -> Any:
+        with subserializer('$item'):
+            obj = self.dependencies['item'].serialize(obj)
+        return len(obj)
+
+
+@dataclass
+class AnyAnyLen(Fac):
+    __mapper_cls__ = AnyAnyLenMapper
+    item: Fac
+
+    def dependencies(self) -> FieldsFac:
+        return {'item': self.item}
 
 
 class AnyAnyLookupMapper(Mapper):

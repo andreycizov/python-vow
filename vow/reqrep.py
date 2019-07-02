@@ -1,11 +1,13 @@
 import json
+from _ast import With
 from enum import Enum
 from typing import Optional, Any, Tuple, Union
 
 from dataclasses import dataclass, field
 
-from vow.marsh import infer, Fac, SerializationError
-from vow.marsh.base import FieldsFac, Mapper
+from vow.marsh.base import FieldsFac, Mapper, Fac
+from vow.marsh.decl import infer
+from vow.marsh.error import SerializationError
 from vow.marsh.helper import FIELD_FACTORY
 from vow.marsh.impl.any import Passthrough, AnyAnyDiscriminant, Ref, AnyAnyItem, AnyAnySelfMapper, AnyAnyField, \
     AnyAnyAttr, AnyAnyLookupMapper, AnyAnyWith, AnyAnyLookup
@@ -111,8 +113,6 @@ class JsonIntoPacket(Fac):
                             {v: k for k, v in PACKET_TYPE_MAP}
                         )
                     ),
-
-                    # AnyAnyAttr('type', JsonIntoEnum(Type, Passthrough(str)))
                 )),
                 ('stream', False, AnyAnyField(
                     'stream',
@@ -126,7 +126,7 @@ class JsonIntoPacket(Fac):
                             AnyAnyAttr('__class__', Passthrough()),
                         ),
                         AnyAnyAttr('body', Passthrough()),
-                        [(v, Ref(v)) for _, v in PACKET_TYPE_MAP]
+                        [(v, Ref(JSON_INTO, v)) for _, v in PACKET_TYPE_MAP]
                     )
                 )),
             ],
@@ -157,7 +157,7 @@ class JsonFromPacket(Fac):
                     AnyAnyDiscriminant(
                         AnyAnyItem('type', AnyFromEnum(Type, Passthrough(str))),
                         AnyAnyItem('body', JsonAnyAny()),
-                        [(k, Ref(v)) for k, v in PACKET_TYPE_MAP]
+                        [(k, Ref(JSON_FROM, v)) for k, v in PACKET_TYPE_MAP]
                     )
                 )),
             ],
@@ -166,6 +166,37 @@ class JsonFromPacket(Fac):
 
         return r
 
+
+class BytesFromPacket(Fac):
+    __mapper_cls__ = AnyAnySelfMapper
+
+    def dependencies(self) -> FieldsFac:
+        return {
+            'self': AnyAnyWith(
+                AnyAnyWith(
+                    BinaryFromVarInt(),
+                    AnyAnyWith(
+                        BinaryFromBytes(
+                            AnyAnyAttr('val', Passthrough(int)),
+                            AnyAnyAttr('next', Passthrough())
+                        ),
+                        AnyFromStruct(
+                            [
+                                ('val', False, AnyAnyField(
+                                    'val',
+                                    BinaryFromJson(
+                                        AnyAnyAttr('val')
+                                    )
+                                )),
+                                ('next', False, AnyAnyField('next', AnyAnyAttr('next')))
+                            ],
+                            cls=BinaryNext
+                        )
+                    )
+                ),
+                Ref(JSON_FROM, Packet)
+            )
+        }
 
 @dataclass
 class Packet:

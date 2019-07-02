@@ -2,7 +2,7 @@ from typing import Any
 
 from dataclasses import dataclass
 
-from vow.marsh import SerializationError
+from vow.marsh.error import SerializationError
 from vow.marsh.impl.any_into import AnyIntoStructMapper, AnyIntoStruct, AnyIntoEnumMapper, AnyIntoEnum
 
 

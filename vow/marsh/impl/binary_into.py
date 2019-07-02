@@ -1,13 +1,17 @@
-from typing import Any
+import json
+from typing import Any, List
 
-from vow.marsh import Fac, Mapper, SerializationError
+from dataclasses import dataclass, field
+
+from vow.marsh.base import FieldsFac, Mapper, Fac
+from vow.marsh.error import subserializer, SerializationError
 
 
 class BinaryIntoVarIntMapper(Mapper):
 
     def serialize(self, obj: Any) -> Any:
         if not isinstance(obj, int):
-            raise SerializationError(val=obj, reason='not_int')
+            raise SerializationError(val=obj, reason='not_int', origin=self)
 
         r = []
 
@@ -27,3 +31,45 @@ class BinaryIntoVarIntMapper(Mapper):
 
 class BinaryIntoVarInt(Fac):
     __mapper_cls__ = BinaryIntoVarIntMapper
+
+
+class BinaryIntoJsonMapper(Mapper):
+
+    def serialize(self, obj: Any) -> Any:
+        with subserializer('$body'):
+            val = self.dependencies['body'].serialize(obj)
+
+        try:
+            return json.dumps(val).encode()
+        except Exception as e:
+            raise SerializationError(val=obj, reason='json', exc=e, origin=self)
+
+
+@dataclass
+class BinaryIntoJson(Fac):
+    __mapper_cls__ = BinaryIntoJsonMapper
+    body: Fac
+
+    def dependencies(self) -> FieldsFac:
+        return {'body': self.body}
+
+
+class BinaryIntoConcatMapper(Mapper):
+
+    def serialize(self, obj: Any) -> Any:
+        r = b''
+        for x in range(len(self.dependencies)):
+            with subserializer(str(x)):
+                r += self.dependencies[str(x)].serialize(obj)
+
+        return r
+
+
+@dataclass
+class BinaryIntoConcat(Fac):
+    __mapper_cls__ = BinaryIntoConcatMapper
+
+    items: List[Fac] = field(default_factory=list)
+
+    def dependencies(self) -> FieldsFac:
+        return {str(i): v for i, v in enumerate(self.items)}

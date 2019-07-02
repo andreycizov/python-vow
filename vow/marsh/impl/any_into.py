@@ -4,8 +4,8 @@ from typing import Type, List, Tuple, Any, Optional
 
 from dataclasses import dataclass, field
 
-from vow.marsh import Mapper, SerializationError, Fac
-from vow.marsh.base import Fields, FieldsFac
+from vow.marsh.error import SerializationError
+from vow.marsh.base import Fields, FieldsFac, Mapper, Fac
 from vow.marsh.impl.any import Passthrough
 
 

@@ -5,12 +5,12 @@ from typing import Optional
 
 from dataclasses import dataclass
 
-from vow.marsh import SerializationError
+from vow.marsh.error import SerializationError
 from xrpc.trace import trc
 
 from vow.marsh.walker import Walker
 from vow.marsh.decl import infer
-from vow.marsh.impl.any import Passthrough, Ref
+from vow.marsh.impl.any import Passthrough, Ref, AnyAnyField, AnyAnyAttr
 from vow.marsh.impl.json import JSON_FROM, JSON_INTO
 from vow.marsh.impl.json_from import JsonFromTimeDelta
 from vow.marsh.impl.any_into import AnyIntoStruct
@@ -53,27 +53,27 @@ class TestApi(unittest.TestCase):
             b: A
 
         self.assertEqual(
-            Ref(__name__ + '.A'),
+            Ref(JSON_INTO, __name__ + '.A'),
             Walker(JSON_INTO).resolve(A)
         )
 
         self.assertEqual(
-            Ref(__name__ + '.B'),
+            Ref(JSON_INTO, __name__ + '.B'),
             Walker(JSON_INTO).resolve(B),
         )
 
         self.assertEqual(
             AnyIntoStruct([
-                ('a', False, Passthrough(int))
-            ]),
+                ('a', False, AnyAnyField('a', AnyAnyAttr('a', Passthrough(int))))
+            ], A),
             A.__serde__[JSON_INTO],
         )
 
         self.assertEqual(
             AnyIntoStruct([
-                ('a', False, Passthrough(int)),
-                ('b', True, Ref(__name__ + '.A')),
-            ]),
+                ('a', False, AnyAnyField('a', AnyAnyAttr('a', Passthrough(int)))),
+                ('b', False, AnyAnyField('b', AnyAnyAttr('b', Ref(JSON_INTO, __name__ + '.A')))),
+            ], B),
             B.__serde__[JSON_INTO],
         )
 
@@ -91,9 +91,9 @@ class TestApi(unittest.TestCase):
 
         self.assertEqual(
             AnyIntoStruct([
-                ('a', False, Passthrough(int)),
-                ('b', True, Ref(__name__ + '.B')),
-            ]),
+                ('a', False, AnyAnyField('a', AnyAnyAttr('a', Passthrough(int)))),
+                ('b', False, AnyAnyField('b', AnyAnyAttr('b', Ref(JSON_INTO, __name__ + '.B')))),
+            ], A),
             A.__serde__[JSON_INTO],
         )
 
