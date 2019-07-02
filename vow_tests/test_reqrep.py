@@ -36,7 +36,7 @@ class TestRequests(unittest.TestCase):
 
         self.assertEqual(pkt, out2)
 
-    def test_api_1(self):
+    def test_api_2(self):
         pkt = Packet(None, Service('ratelimiter'))
 
         wlkr1 = Walker(BINARY_FROM)
