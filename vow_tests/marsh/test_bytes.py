@@ -103,13 +103,13 @@ class TestBytes(unittest.TestCase):
                 ),
                 AnyFromStruct(
                     [
-                        ('val', False, AnyAnyField(
+                        AnyAnyField(
                             'val',
                             BinaryFromJson(
                                 AnyAnyAttr('val')
                             )
-                        )),
-                        ('next', False, AnyAnyField('next', AnyAnyAttr('next')))
+                        ),
+                        AnyAnyField('next', AnyAnyAttr('next'))
                     ],
                     cls=BinaryNext
                 )

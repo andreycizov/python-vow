@@ -1,5 +1,4 @@
 import json
-from _ast import With
 from enum import Enum
 from typing import Optional, Any, Tuple, Union
 
@@ -10,9 +9,10 @@ from vow.marsh.decl import infer
 from vow.marsh.error import SerializationError
 from vow.marsh.helper import FIELD_FACTORY
 from vow.marsh.impl.any import Passthrough, AnyAnyDiscriminant, Ref, AnyAnyItem, AnyAnySelfMapper, AnyAnyField, \
-    AnyAnyAttr, AnyAnyLookupMapper, AnyAnyWith, AnyAnyLookup
-from vow.marsh.impl.binary_from import BinaryFromVarInt, BinaryFromBytes
-from vow.marsh.impl.binary_into import BinaryIntoVarInt
+    AnyAnyAttr, AnyAnyLookupMapper, AnyAnyWith, AnyAnyLookup, AnyAnyLen
+from vow.marsh.impl.binary import BinaryNext, BINARY_FROM, BINARY_INTO
+from vow.marsh.impl.binary_from import BinaryFromVarInt, BinaryFromBytes, BinaryFromJson
+from vow.marsh.impl.binary_into import BinaryIntoVarInt, BinaryIntoJson, BinaryIntoConcat
 from vow.marsh.impl.json import JSON_FROM, JSON_INTO, JsonAnyAny, JsonAnyOptional
 from vow.marsh.impl.any_from import AnyFromStruct, AnyFromEnum
 from vow.marsh.impl.any_into import AnyIntoStruct, AnyIntoEnum
@@ -101,7 +101,7 @@ class JsonIntoPacket(Fac):
 
         r['self'] = AnyIntoStruct(
             [
-                ('type', False, AnyAnyField(
+                AnyAnyField(
                     'type',
                     AnyIntoEnum(
                         Type,
@@ -113,12 +113,12 @@ class JsonIntoPacket(Fac):
                             {v: k for k, v in PACKET_TYPE_MAP}
                         )
                     ),
-                )),
-                ('stream', False, AnyAnyField(
+                ),
+                AnyAnyField(
                     'stream',
                     AnyAnyAttr('stream', JsonAnyOptional(Passthrough(int)))
-                )),
-                ('body', False, AnyAnyField(
+                ),
+                AnyAnyField(
                     'body',
                     AnyAnyDiscriminant(
                         AnyAnyWith(
@@ -128,7 +128,7 @@ class JsonIntoPacket(Fac):
                         AnyAnyAttr('body', Passthrough()),
                         [(v, Ref(JSON_INTO, v)) for _, v in PACKET_TYPE_MAP]
                     )
-                )),
+                ),
             ],
             Packet
         )
@@ -148,18 +148,18 @@ class JsonFromPacket(Fac):
                 #     'type',
                 #     AnyAnyItem('type', JsonFromEnum(Type, Passthrough(str)))
                 # )),
-                ('stream', False, AnyAnyField(
+                AnyAnyField(
                     'stream',
                     AnyAnyItem('stream', JsonAnyOptional(Passthrough(int)))
-                )),
-                ('body', False, AnyAnyField(
+                ),
+                AnyAnyField(
                     'body',
                     AnyAnyDiscriminant(
                         AnyAnyItem('type', AnyFromEnum(Type, Passthrough(str))),
                         AnyAnyItem('body', JsonAnyAny()),
                         [(k, Ref(JSON_FROM, v)) for k, v in PACKET_TYPE_MAP]
                     )
-                )),
+                ),
             ],
             Packet
         )
@@ -167,42 +167,83 @@ class JsonFromPacket(Fac):
         return r
 
 
-class BytesFromPacket(Fac):
+class BinaryIntoPacket(Fac):
     __mapper_cls__ = AnyAnySelfMapper
 
     def dependencies(self) -> FieldsFac:
+        bin_into = AnyAnyWith(
+            BinaryIntoJson(Passthrough()),
+            BinaryIntoConcat([
+                AnyAnyWith(
+                    AnyAnyLen(Passthrough()),
+                    BinaryIntoVarInt(),
+                ),
+                Passthrough()
+            ])
+        )
         return {
             'self': AnyAnyWith(
-                AnyAnyWith(
-                    BinaryFromVarInt(),
-                    AnyAnyWith(
-                        BinaryFromBytes(
-                            AnyAnyAttr('val', Passthrough(int)),
-                            AnyAnyAttr('next', Passthrough())
-                        ),
-                        AnyFromStruct(
-                            [
-                                ('val', False, AnyAnyField(
-                                    'val',
-                                    BinaryFromJson(
-                                        AnyAnyAttr('val')
-                                    )
-                                )),
-                                ('next', False, AnyAnyField('next', AnyAnyAttr('next')))
-                            ],
-                            cls=BinaryNext
-                        )
-                    )
-                ),
-                Ref(JSON_FROM, Packet)
+                Ref(JSON_INTO, Packet),
+                bin_into
             )
         }
+
+
+class BinaryFromPacket(Fac):
+    __mapper_cls__ = AnyAnySelfMapper
+
+    def dependencies(self) -> FieldsFac:
+        bin_into = AnyAnyWith(
+            BinaryFromVarInt(),
+            AnyAnyWith(
+                BinaryFromBytes(
+                    AnyAnyAttr('val', Passthrough(int)),
+                    AnyAnyAttr('next', Passthrough())
+                ),
+                AnyFromStruct(
+                    [
+                        AnyAnyField(
+                            'val',
+                            BinaryFromJson(
+                                AnyAnyAttr('val')
+                            )
+                        ),
+                        AnyAnyField('next', AnyAnyAttr('next'))
+                    ],
+                    cls=BinaryNext
+                )
+            )
+        )
+        return {
+            'self': AnyAnyWith(
+                bin_into,
+                AnyFromStruct(
+                    [
+                        AnyAnyField(
+                            'val',
+                            AnyAnyWith(
+                                AnyAnyAttr('val'),
+                                Ref(JSON_FROM, Packet)
+                            )
+                        ),
+                        AnyAnyField(
+                            'next',
+                            AnyAnyAttr('next')
+                        )
+                    ],
+                    cls=BinaryNext,
+                )
+            )
+        }
+
 
 @dataclass
 class Packet:
     __serde__ = {
         JSON_INTO: JsonIntoPacket(),
         JSON_FROM: JsonFromPacket(),
+        BINARY_FROM: BinaryFromPacket(),
+        BINARY_INTO: BinaryIntoPacket(),
     }
     stream: Optional[str]
     body: Union[

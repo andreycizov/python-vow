@@ -4,16 +4,15 @@ from typing import Type, List, Tuple, Any, Optional
 
 from dataclasses import dataclass, field
 
-from vow.marsh.error import SerializationError
+from vow.marsh.error import SerializationError, subserializer
 from vow.marsh.base import Fields, FieldsFac, Mapper, Fac
-from vow.marsh.impl.any import Passthrough
+from vow.marsh.impl.any import Passthrough, FieldValue
 
 
 class AnyIntoStructMapper(Mapper):
 
-    def __init__(self, cls: Type, fields: List[Tuple[str, bool]], dependencies: Fields):
+    def __init__(self, cls: Type, dependencies: Fields):
         self.cls = cls
-        self.fields = fields
         super().__init__(dependencies)
 
     def serialize(self, obj: Any) -> Any:
@@ -22,15 +21,15 @@ class AnyIntoStructMapper(Mapper):
 
         r = OrderedDict()
 
-        for k, _ in self.fields:
-            v = self.dependencies[k]
+        for idx, v in self.dependencies.items():
+            with subserializer(idx):
+                item = v.serialize(obj)
 
-            try:
-                name, val = v.serialize(obj)
-            except SerializationError as e:
-                raise e.with_path(k)
+                if not isinstance(item, FieldValue):
+                    raise SerializationError(val=item, reason='unsupported_field_defn', origin=self)
 
-            r[name] = val
+            if item.has_value:
+                r[item.name] = item.value
         return r
 
 
@@ -38,19 +37,17 @@ class AnyIntoStructMapper(Mapper):
 class AnyIntoStruct(Fac):
     __mapper_cls__ = AnyIntoStructMapper
 
-    # [name], is_nullable, factory
-    fields: List[Tuple[Optional[str], bool, Fac]]
+    fields: List[Fac]
     cls: Optional[Type] = None
 
     def create(self, dependencies: Fields) -> Mapper:
         return self.__mapper_cls__(
             cls=self.cls,
             dependencies=dependencies,
-            fields=[(str(i) if n is None else n, x) for i, (n, x, _) in enumerate(self.fields)]
         )
 
     def dependencies(self) -> FieldsFac:
-        return {str(i) if n is None else n: v for i, (n, _, v) in enumerate(self.fields)}
+        return {str(i): v for i, v in enumerate(self.fields)}
 
 
 class AnyIntoEnumMapper(Mapper):

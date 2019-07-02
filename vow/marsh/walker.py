@@ -85,7 +85,7 @@ class Walker:
         if isinstance(cls, DataclassWrapper):
             cls = cls.type
             assert is_dataclass(cls), cls
-            r: List[Tuple[str, bool, Fac]] = []
+            r: List[Fac] = []
 
             for item in fields(cls):
                 item: Field
@@ -103,10 +103,11 @@ class Walker:
                 if item_factory is MISSING:
                     item_factory = self.resolve(item_type)
 
+                is_optional = item.default is not MISSING
+                # todo support optional
+
                 if self.name == 'json_from':
-                    r.append((
-                        item.name,
-                        item.default is not MISSING,
+                    r.append(
                         AnyAnyField(
                             item.name,
                             AnyAnyItem(
@@ -114,11 +115,9 @@ class Walker:
                                 item_factory
                             )
                         )
-                    ))
+                    )
                 elif self.name == 'json_into':
-                    r.append((
-                        item.name,
-                        item.default is not MISSING,
+                    r.append(
                         AnyAnyField(
                             item.name,
                             AnyAnyAttr(
@@ -126,7 +125,7 @@ class Walker:
                                 item_factory
                             )
                         )
-                    ))
+                    )
                 else:
                     raise NotImplementedError((self.name, None))
 
@@ -253,13 +252,13 @@ class Walker:
             should_early = False
 
             if isinstance(obj, Ref):
-                if obj.item not in name_node:
+                if obj.full_name not in name_node:
                     node_id = next(node_ctr)
-                    name_node[obj.item] = node_id
+                    name_node[obj.full_name] = node_id
 
-                    obj = obj.resolve(self.name)
+                    obj = obj.resolve()
                 else:
-                    node_id = name_node[obj.item]
+                    node_id = name_node[obj.full_name]
                     should_early = True
             else:
                 node_id = next(node_ctr)

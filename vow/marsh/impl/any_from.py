@@ -2,7 +2,8 @@ from typing import Any
 
 from dataclasses import dataclass
 
-from vow.marsh.error import SerializationError
+from vow.marsh.error import SerializationError, subserializer
+from vow.marsh.impl.any import FieldValue
 from vow.marsh.impl.any_into import AnyIntoStructMapper, AnyIntoStruct, AnyIntoEnumMapper, AnyIntoEnum
 
 
@@ -10,15 +11,15 @@ class AnyFromStructMapper(AnyIntoStructMapper):
 
     def serialize(self, obj: Any) -> Any:
         r = {}
-        for k, is_nullable in self.fields:
-            v = self.dependencies[k]
+        for idx, v in self.dependencies.items():
+            with subserializer(idx):
+                item = v.serialize(obj)
 
-            try:
-                name, val = v.serialize(obj)
-            except SerializationError as e:
-                raise e.with_path(k)
+                if not isinstance(item, FieldValue):
+                    raise SerializationError(val=item, reason='unsupported_field_defn', origin=self)
 
-            r[name] = val
+            if item.has_value:
+                r[item.name] = item.value
 
         if self.cls:
             return self.cls(**r)

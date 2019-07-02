@@ -1,7 +1,7 @@
 from importlib import import_module
 from typing import Any, Type, Optional, Dict, Tuple, List
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, MISSING
 from xrpc.trace import trc
 
 from vow.marsh.error import SerializationError, subserializer
@@ -123,12 +123,20 @@ class Ref(Fac):
         else:
             self.item = f'{item.__module__}.{item.__name__}'
 
-    def resolve(self, name) -> Fac:
+    @property
+    def full_name(self):
+        return f'{self.name}:{self.item}'
+
+    def resolve(self) -> Fac:
         module, item = self.item.rsplit('.', 1)
         r = getattr(import_module(module), item)
 
         assert is_serializable(r), (self.item, r)
-        return getattr(r, DECL_ATTR)[name]
+
+        try:
+            return getattr(r, DECL_ATTR)[self.name]
+        except KeyError:
+            raise KeyError(f'Could not find serializer type `{self.name}` in `{r}`')
 
     def dependencies(self) -> FieldsFac:
         raise NotImplementedError('Ref.dependencies can not be called directly, must be handled outside')
@@ -184,21 +192,31 @@ class AnyAnyDiscriminant(Fac):
 
 
 @dataclass
+class FieldValue:
+    name: str
+    value: Any = MISSING
+
+    @property
+    def has_value(self):
+        return self.value != MISSING
+
+
+@dataclass
 class AnyAnyFieldMapper(Mapper):
 
     def __init__(self, name: str, dependencies: Fields):
         self.name = name
         super().__init__(dependencies)
 
-    def serialize(self, obj: Any) -> Any:
+    def serialize(self, obj: Any) -> FieldValue:
         v = self.dependencies['item']
 
         try:
             obj = v.serialize(obj)
         except SerializationError as e:
-            raise e.with_path('$field')
+            raise e.with_path(self.name)
 
-        return self.name, obj
+        return FieldValue(self.name, obj)
 
 
 @dataclass

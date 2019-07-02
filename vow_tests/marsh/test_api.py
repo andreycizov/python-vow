@@ -64,15 +64,15 @@ class TestApi(unittest.TestCase):
 
         self.assertEqual(
             AnyIntoStruct([
-                ('a', False, AnyAnyField('a', AnyAnyAttr('a', Passthrough(int))))
+                AnyAnyField('a', AnyAnyAttr('a', Passthrough(int)))
             ], A),
             A.__serde__[JSON_INTO],
         )
 
         self.assertEqual(
             AnyIntoStruct([
-                ('a', False, AnyAnyField('a', AnyAnyAttr('a', Passthrough(int)))),
-                ('b', False, AnyAnyField('b', AnyAnyAttr('b', Ref(JSON_INTO, __name__ + '.A')))),
+                AnyAnyField('a', AnyAnyAttr('a', Passthrough(int))),
+                AnyAnyField('b', AnyAnyAttr('b', Ref(JSON_INTO, __name__ + '.A'))),
             ], B),
             B.__serde__[JSON_INTO],
         )
@@ -91,8 +91,8 @@ class TestApi(unittest.TestCase):
 
         self.assertEqual(
             AnyIntoStruct([
-                ('a', False, AnyAnyField('a', AnyAnyAttr('a', Passthrough(int)))),
-                ('b', False, AnyAnyField('b', AnyAnyAttr('b', Ref(JSON_INTO, __name__ + '.B')))),
+                AnyAnyField('a', AnyAnyAttr('a', Passthrough(int))),
+                AnyAnyField('b', AnyAnyAttr('b', Ref(JSON_INTO, __name__ + '.B'))),
             ], A),
             A.__serde__[JSON_INTO],
         )
@@ -123,7 +123,7 @@ class TestApi(unittest.TestCase):
                 mapper.serialize(Amber('asd', Bulky()))
             )
         except SerializationError as e:
-            self.assertEqual(['a', '$field', '$attr'], e.path)
+            self.assertEqual(['0', 'a', '$attr'], e.path)
 
     def test_mapper_from(self):
         ctx = Walker(JSON_FROM)
@@ -151,4 +151,4 @@ class TestApi(unittest.TestCase):
                 })
             )
         except SerializationError as e:
-            self.assertEqual(['a', '$field', '$item'], e.path)
+            self.assertEqual(['0', 'a', '$item'], e.path)
