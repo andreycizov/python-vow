@@ -2,10 +2,17 @@ from importlib import import_module
 from typing import Any, Type, Optional, Dict, Tuple, List
 
 from dataclasses import dataclass
+from xrpc.trace import trc
 
 from vow.marsh.error import SerializationError
 from vow.marsh.helper import is_serializable, DECL_ATTR
 from vow.marsh.base import Mapper, Fac, FieldsFac, Fields
+
+
+class AnyAnySelfMapper(Mapper):
+
+    def serialize(self, obj: Any) -> Any:
+        return self.dependencies['self'].serialize(obj)
 
 
 class PassthroughMapper(Mapper):
@@ -19,7 +26,7 @@ class PassthroughMapper(Mapper):
             try:
                 obj = self.type(obj)
             except Exception as e:
-                raise SerializationError(val=obj, reason=str(e))
+                raise SerializationError(val=obj, exc=e, reason='unmappable', origin=self)
 
         return obj
 
@@ -47,13 +54,13 @@ class AnyAnyAttrMapper(Mapper):
     def serialize(self, obj: Any) -> Any:
         try:
             r = getattr(obj, self.name)
-        except AttributeError:
-            raise SerializationError(val=obj, reason=f'`{self.name}`')
+        except AttributeError as e:
+            raise SerializationError(val=obj, reason=f'attr_missing', origin=self, exc=e)
 
         try:
             return self.dependencies['type'].serialize(r)
         except SerializationError as e:
-            raise e.with_path('$type')
+            raise e.with_path('$attr')
 
 
 @dataclass()
@@ -77,13 +84,15 @@ class AnyAnyItemMapper(Mapper):
     def serialize(self, obj: Any) -> Any:
         try:
             r = obj[self.name]
-        except KeyError:
-            raise SerializationError(val=obj, reason=f'`{self.name}`')
+        except KeyError as e:
+            raise SerializationError(val=obj, reason='key_missing', exc=e, origin=self)
+
+        trc('anyanyitemmap').debug('%s', r)
 
         try:
             return self.dependencies['type'].serialize(r)
         except SerializationError as e:
-            raise e.with_path('$type')
+            raise e.with_path('$item')
 
 
 @dataclass()
@@ -102,11 +111,17 @@ class AnyAnyItem(Fac):
 class Ref(Fac):
     item: str
 
+    def __init__(self, item):
+        if isinstance(item, str):
+            self.item = item
+        else:
+            self.item = f'{item.__module__}.{item.__name__}'
+
     def resolve(self, name) -> Fac:
         module, item = self.item.rsplit('.', 1)
         r = getattr(import_module(module), item)
 
-        assert is_serializable(r), r
+        assert is_serializable(r), (self.item, r)
         return getattr(r, DECL_ATTR)[name]
 
     def dependencies(self) -> FieldsFac:
@@ -121,22 +136,32 @@ class AnyAnyDiscriminantMapper(Mapper):
 
     def serialize(self, obj: Any) -> Any:
         try:
-            val = self.dependencies['value'].serialize(obj)
+            discriminant = self.dependencies['discriminant'].serialize(obj)
+        except SerializationError as e:
+            raise e.with_path('$discriminant')
+
+        if discriminant not in self.items:
+            raise SerializationError(val=obj, path=['$value'], origin=self,
+                                     reason=f'`{discriminant}` is not in the map')
+
+        try:
+            value = self.dependencies['value'].serialize(obj)
         except SerializationError as e:
             raise e.with_path('$value')
 
-        if val not in self.items:
-            raise SerializationError(val=obj, path=['$value'], reason=f'`{val}` is not in the map')
+        depk = self.items[discriminant]
+        dep = self.dependencies[depk]
 
         try:
-            return self.dependencies[self.items[val]].serialize(obj)
+            return dep.serialize(value)
         except SerializationError as e:
-            raise e.with_path('$sub')
+            raise e.with_path('$sub', depk)
 
 
 @dataclass
 class AnyAnyDiscriminant(Fac):
     __mapper_cls__ = AnyAnyDiscriminantMapper
+    discriminant: Fac
     value: Fac
     mappers: List[Tuple[Any, Fac]]
 
@@ -147,5 +172,93 @@ class AnyAnyDiscriminant(Fac):
 
     def dependencies(self) -> FieldsFac:
         r = {str(i): x for i, (_, x) in enumerate(self.mappers)}
+        r['discriminant'] = self.discriminant
         r['value'] = self.value
         return r
+
+
+@dataclass
+class AnyAnyFieldMapper(Mapper):
+
+    def __init__(self, name: str, dependencies: Fields):
+        self.name = name
+        super().__init__(dependencies)
+
+    def serialize(self, obj: Any) -> Any:
+        v = self.dependencies['item']
+
+        try:
+            obj = v.serialize(obj)
+        except SerializationError as e:
+            raise e.with_path('$field')
+
+        return self.name, obj
+
+
+@dataclass
+class AnyAnyField(Fac):
+    __mapper_cls__ = AnyAnyFieldMapper
+    __mapper_args__ = 'name',
+
+    name: str
+    serializer: Fac
+
+    def dependencies(self) -> FieldsFac:
+        return {'item': self.serializer}
+
+
+class AnyAnyLookupMapper(Mapper):
+
+    def __init__(self, lookup: Dict[Any, Any], dependencies: Fields):
+        self.lookup = lookup
+        super().__init__(dependencies)
+
+    def serialize(self, obj: Any) -> Any:
+        try:
+            obj2 = self.dependencies['value'].serialize(obj)
+        except SerializationError as e:
+            raise e.with_path('$value')
+
+        if obj2 not in self.lookup:
+            raise SerializationError(val=obj, exc=KeyError(obj2), reason='key_missing')
+
+        return self.lookup[obj2]
+
+
+@dataclass
+class AnyAnyLookup(Fac):
+    __mapper_cls__ = AnyAnyLookupMapper
+    __mapper_args__ = 'lookup',
+
+    value: Fac
+    lookup: Dict[Any, Any]
+
+    def dependencies(self) -> FieldsFac:
+        return {'value': self.value}
+
+
+class AnyAnyWithMapper(Mapper):
+
+    def serialize(self, obj: Any) -> Any:
+        try:
+            obj = self.dependencies['value'].serialize(obj)
+        except SerializationError as e:
+            raise e.with_path('$value')
+
+        try:
+            r = self.dependencies['child'].serialize(obj)
+        except SerializationError as e:
+            raise e.with_path('$child')
+
+        return r
+
+
+@dataclass
+class AnyAnyWith(Fac):
+    __mapper_cls__ = AnyAnyWithMapper
+
+    value: Fac
+    child: Fac
+
+    def dependencies(self) -> FieldsFac:
+        return {'value': self.value, 'child': self.child}

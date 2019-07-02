@@ -11,12 +11,12 @@ from typing_inspect import is_optional_type, get_args, get_last_args
 
 from vow.marsh.helper import is_serializable, DECL_ATTR, FIELD_FACTORY, FIELD_OVERRIDE
 
-from vow.marsh.impl.any import Passthrough, Ref, AnyAnyAttr, AnyAnyItem
-from vow.marsh.impl.json_from import JsonFromDateTime, JsonFromTimeDelta, \
-    JsonFromStruct, JsonFromEnum
-from vow.marsh.impl.json_into import JsonIntoDateTime, JsonIntoTimeDelta, \
-    JsonIntoStruct, JsonIntoEnum
-from vow.marsh.impl.json import JsonAnyList, JsonAnyDict, JsonAnyOptional, JsonAnyField
+from vow.marsh.impl.any import Passthrough, Ref, AnyAnyAttr, AnyAnyItem, AnyAnyField
+from vow.marsh.impl.json_from import JsonFromDateTime, JsonFromTimeDelta
+from vow.marsh.impl.any_from import AnyFromStruct, AnyFromEnum
+from vow.marsh.impl.json_into import JsonIntoDateTime, JsonIntoTimeDelta
+from vow.marsh.impl.any_into import AnyIntoStruct, AnyIntoEnum
+from vow.marsh.impl.json import JsonAnyList, JsonAnyDict, JsonAnyOptional
 from vow.marsh.base import Fac, Mapper
 
 if sys.version_info >= (3, 7):
@@ -107,7 +107,7 @@ class Walker:
                     r.append((
                         item.name,
                         item.default is not MISSING,
-                        JsonAnyField(
+                        AnyAnyField(
                             item.name,
                             AnyAnyItem(
                                 item.name,
@@ -119,7 +119,7 @@ class Walker:
                     r.append((
                         item.name,
                         item.default is not MISSING,
-                        JsonAnyField(
+                        AnyAnyField(
                             item.name,
                             AnyAnyAttr(
                                 item.name,
@@ -131,13 +131,14 @@ class Walker:
                     raise NotImplementedError((self.name, None))
 
             if self.name == 'json_from':
-                return JsonFromStruct(
+                return AnyFromStruct(
                     r,
                     cls
                 )
             elif self.name == 'json_into':
-                return JsonIntoStruct(
+                return AnyIntoStruct(
                     r,
+                    cls,
                 )
             else:
                 raise NotImplementedError((self.name, None))
@@ -198,9 +199,9 @@ class Walker:
                 fac = self.resolve(t)
 
                 if self.name == 'json_from':
-                    return JsonFromEnum(cls, fac)
+                    return AnyFromEnum(cls, fac)
                 elif self.name == 'json_into':
-                    return JsonIntoEnum(cls, fac)
+                    return AnyIntoEnum(cls, fac)
                 else:
                     raise NotImplementedError(('class4', cls))
             elif is_dataclass(cls):

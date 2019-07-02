@@ -1,17 +1,16 @@
 import unittest
 from collections import OrderedDict
-from pprint import pprint
 
 from xrpc.trace import trc
 
 from vow.marsh.impl.json import JSON_FROM, JSON_INTO
 from vow.marsh.walker import Walker
-from vow.reqrep import Packet, Type
+from vow.reqrep import Packet, Type, Service
 
 
 class TestRequests(unittest.TestCase):
     def test_api_1(self):
-        pkt = Packet(Type.Service, None, {'a': [{'a': 'c'}]})
+        pkt = Packet(None, Service('ratelimiter'))
 
         wlkr1 = Walker(JSON_FROM)
         wlkr2 = Walker(JSON_INTO)
@@ -19,16 +18,19 @@ class TestRequests(unittest.TestCase):
         fac1 = wlkr1.resolve(Packet)
         fac2 = wlkr2.resolve(Packet)
 
-        ser1, = wlkr1.mappers(fac1)
-        ser2, = wlkr2.mappers(fac2)
+        json_from, = wlkr1.mappers(fac1)
+        json_into, = wlkr2.mappers(fac2)
 
-        out1 = ser2.serialize(pkt)
-        out2 = ser1.serialize(out1)
+        out1 = json_into.serialize(pkt)
+
+        trc('test_api_1').debug('%s', out1)
+
+        out2 = json_from.serialize(out1)
+
+        trc('test_api_2').debug('%s', out2)
 
         self.assertEqual(OrderedDict([('type', 'service'),
                                       ('stream', None),
-                                      ('body', {'a': [{'a': 'c'}]})]), out1)
-
-        trc().debug('')
+                                      ('body', {'version': '0.1.0', 'name': 'ratelimiter', 'proto': '0.1.0'})]), out1)
 
         self.assertEqual(pkt, out2)

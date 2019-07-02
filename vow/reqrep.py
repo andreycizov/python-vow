@@ -1,15 +1,19 @@
 import json
 from enum import Enum
-from typing import Optional, Any, Tuple
+from typing import Optional, Any, Tuple, Union
 
 from dataclasses import dataclass, field
 
 from vow.marsh import infer, Fac, SerializationError
 from vow.marsh.base import FieldsFac, Mapper
 from vow.marsh.helper import FIELD_FACTORY
+from vow.marsh.impl.any import Passthrough, AnyAnyDiscriminant, Ref, AnyAnyItem, AnyAnySelfMapper, AnyAnyField, \
+    AnyAnyAttr, AnyAnyLookupMapper, AnyAnyWith, AnyAnyLookup
 from vow.marsh.impl.binary_from import BinaryFromVarInt, BinaryFromBytes
 from vow.marsh.impl.binary_into import BinaryIntoVarInt
-from vow.marsh.impl.json import JSON_FROM, JSON_INTO, JsonAnyAny
+from vow.marsh.impl.json import JSON_FROM, JSON_INTO, JsonAnyAny, JsonAnyOptional
+from vow.marsh.impl.any_from import AnyFromStruct, AnyFromEnum
+from vow.marsh.impl.any_into import AnyIntoStruct, AnyIntoEnum
 from vow.marsh.walker import Walker
 from vow.oas.data import JsonAny
 
@@ -32,7 +36,8 @@ class Type(Enum):
     # a start means "an iteration begins"
     Start = 'start'
     # if request has many items to reply with, then each reply is an iteration
-    Iteration = 'cont'
+    Step = 'step'
+    StepAck = 'stepa'
     # an end either means "end of iteration" or
     End = 'end'
 
@@ -83,22 +88,114 @@ class BinaryIntoFrame(Fac):
 
 @dataclass
 class Frame:
-    body: JsonAny = field(default=None, metadata={FIELD_FACTORY: JsonAnyAny()})
+    body: JsonAny = field(default=None)
 
 
-@infer(JSON_INTO, JSON_FROM)
+class JsonIntoPacket(Fac):
+    __mapper_cls__ = AnyAnySelfMapper
+
+    def dependencies(self) -> FieldsFac:
+        r = dict()
+
+        r['self'] = AnyIntoStruct(
+            [
+                ('type', False, AnyAnyField(
+                    'type',
+                    AnyIntoEnum(
+                        Type,
+                        AnyAnyLookup(
+                            AnyAnyWith(
+                                AnyAnyAttr('body', Passthrough()),
+                                AnyAnyAttr('__class__', Passthrough()),
+                            ),
+                            {v: k for k, v in PACKET_TYPE_MAP}
+                        )
+                    ),
+
+                    # AnyAnyAttr('type', JsonIntoEnum(Type, Passthrough(str)))
+                )),
+                ('stream', False, AnyAnyField(
+                    'stream',
+                    AnyAnyAttr('stream', JsonAnyOptional(Passthrough(int)))
+                )),
+                ('body', False, AnyAnyField(
+                    'body',
+                    AnyAnyDiscriminant(
+                        AnyAnyWith(
+                            AnyAnyAttr('body', Passthrough()),
+                            AnyAnyAttr('__class__', Passthrough()),
+                        ),
+                        AnyAnyAttr('body', Passthrough()),
+                        [(v, Ref(v)) for _, v in PACKET_TYPE_MAP]
+                    )
+                )),
+            ],
+            Packet
+        )
+
+        return r
+
+
+class JsonFromPacket(Fac):
+    __mapper_cls__ = AnyAnySelfMapper
+
+    def dependencies(self) -> FieldsFac:
+        r = dict()
+
+        r['self'] = AnyFromStruct(
+            [
+                # ('type', False, AnyAnyField(
+                #     'type',
+                #     AnyAnyItem('type', JsonFromEnum(Type, Passthrough(str)))
+                # )),
+                ('stream', False, AnyAnyField(
+                    'stream',
+                    AnyAnyItem('stream', JsonAnyOptional(Passthrough(int)))
+                )),
+                ('body', False, AnyAnyField(
+                    'body',
+                    AnyAnyDiscriminant(
+                        AnyAnyItem('type', AnyFromEnum(Type, Passthrough(str))),
+                        AnyAnyItem('body', JsonAnyAny()),
+                        [(k, Ref(v)) for k, v in PACKET_TYPE_MAP]
+                    )
+                )),
+            ],
+            Packet
+        )
+
+        return r
+
+
 @dataclass
 class Packet:
-    type: Type
-    stream: Optional[str] = None
-    body: JsonAny = field(default=None, metadata={FIELD_FACTORY: JsonAnyAny()})
+    __serde__ = {
+        JSON_INTO: JsonIntoPacket(),
+        JSON_FROM: JsonFromPacket(),
+    }
+    stream: Optional[str]
+    body: Union[
+        'Service',
+        'Header',
+        'Begin',
+        'Accepted',
+        'Denied',
+        'Request',
+        'Error',
+        'Cancel',
+        'Start',
+        'Step',
+        'StepAck',
+        'End',
+    ]
 
 
 @infer(JSON_INTO, JSON_FROM)
 @dataclass
 class Service:
     name: str
-    version: Optional[str] = None
+    version: str = '0.1.0'
+    proto: str = '0.1.0'
 
 
 @infer(JSON_INTO, JSON_FROM)
@@ -174,7 +271,19 @@ class End:
     body: JsonAny = field(default=None, metadata={FIELD_FACTORY: JsonAnyAny()})
 
 
-WALKER_JSON_INTO = Walker(JSON_INTO)
-WALKER_JSON_FROM = Walker(JSON_FROM)
-PACKET_MAPPER_INTO, = WALKER_JSON_INTO.mappers(WALKER_JSON_INTO.resolve(Packet))
-PACKET_MAPPER_FROM, = WALKER_JSON_FROM.mappers(WALKER_JSON_FROM.resolve(Packet))
+PACKET_TYPE_MAP = [
+    (Type.Service, Service),
+    (Type.Header, Header),
+
+    (Type.Begin, Begin),
+    (Type.Accepted, Accepted),
+    (Type.Denied, Denied),
+
+    (Type.Request, Request),
+    (Type.Error, Error),
+    (Type.Cancel, Cancel),
+    (Type.Start, Start),
+    (Type.Step, Step),
+    (Type.StepAck, StepAck),
+    (Type.End, End),
+]

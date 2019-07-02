@@ -13,7 +13,7 @@ from vow.marsh.decl import infer
 from vow.marsh.impl.any import Passthrough, Ref
 from vow.marsh.impl.json import JSON_FROM, JSON_INTO
 from vow.marsh.impl.json_from import JsonFromTimeDelta
-from vow.marsh.impl.json_into import JsonIntoStruct
+from vow.marsh.impl.any_into import AnyIntoStruct
 
 
 @infer(JSON_INTO, JSON_FROM)
@@ -63,16 +63,16 @@ class TestApi(unittest.TestCase):
         )
 
         self.assertEqual(
-            JsonIntoStruct([
-                (False, Passthrough(int))
+            AnyIntoStruct([
+                ('a', False, Passthrough(int))
             ]),
             A.__serde__[JSON_INTO],
         )
 
         self.assertEqual(
-            JsonIntoStruct([
-                (False, Passthrough(int)),
-                (True, Ref(__name__ + '.A')),
+            AnyIntoStruct([
+                ('a', False, Passthrough(int)),
+                ('b', True, Ref(__name__ + '.A')),
             ]),
             B.__serde__[JSON_INTO],
         )
@@ -90,9 +90,9 @@ class TestApi(unittest.TestCase):
             b: A
 
         self.assertEqual(
-            JsonIntoStruct([
-                (False, Passthrough(int)),
-                (True, Ref(__name__ + '.B')),
+            AnyIntoStruct([
+                ('a', False, Passthrough(int)),
+                ('b', True, Ref(__name__ + '.B')),
             ]),
             A.__serde__[JSON_INTO],
         )
@@ -123,7 +123,7 @@ class TestApi(unittest.TestCase):
                 mapper.serialize(Amber('asd', Bulky()))
             )
         except SerializationError as e:
-            self.assertEqual(['a', 'a', '$item', '$type'], e.path)
+            self.assertEqual(['a', '$field', '$attr'], e.path)
 
     def test_mapper_from(self):
         ctx = Walker(JSON_FROM)
@@ -151,4 +151,4 @@ class TestApi(unittest.TestCase):
                 })
             )
         except SerializationError as e:
-            self.assertEqual(['a', 'a', '$item', '$type'], e.path)
+            self.assertEqual(['a', '$field', '$item'], e.path)
