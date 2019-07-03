@@ -10,7 +10,7 @@ from xrpc.trace import trc
 
 from vow.marsh.walker import Walker
 from vow.marsh.decl import infer
-from vow.marsh.impl.any import Passthrough, Ref, AnyAnyField, AnyAnyAttr
+from vow.marsh.impl.any import This, Ref, AnyAnyField, AnyAnyAttr
 from vow.marsh.impl.json import JSON_FROM, JSON_INTO
 from vow.marsh.impl.json_from import JsonFromTimeDelta
 from vow.marsh.impl.any_into import AnyIntoStruct
@@ -32,7 +32,7 @@ class Bulky:
 class TestApi(unittest.TestCase):
     def test_resolve_atom(self):
         self.assertEqual(
-            Passthrough(str),
+            This(str),
             Walker(JSON_FROM).resolve(str)
         )
         self.assertEqual(
@@ -64,14 +64,14 @@ class TestApi(unittest.TestCase):
 
         self.assertEqual(
             AnyIntoStruct([
-                AnyAnyField('a', AnyAnyAttr('a', Passthrough(int)))
+                AnyAnyField('a', AnyAnyAttr('a', This(int)))
             ], A),
             A.__serde__[JSON_INTO],
         )
 
         self.assertEqual(
             AnyIntoStruct([
-                AnyAnyField('a', AnyAnyAttr('a', Passthrough(int))),
+                AnyAnyField('a', AnyAnyAttr('a', This(int))),
                 AnyAnyField('b', AnyAnyAttr('b', Ref(JSON_INTO, __name__ + '.A'))),
             ], B),
             B.__serde__[JSON_INTO],
@@ -91,7 +91,7 @@ class TestApi(unittest.TestCase):
 
         self.assertEqual(
             AnyIntoStruct([
-                AnyAnyField('a', AnyAnyAttr('a', Passthrough(int))),
+                AnyAnyField('a', AnyAnyAttr('a', This(int))),
                 AnyAnyField('b', AnyAnyAttr('b', Ref(JSON_INTO, __name__ + '.B'))),
             ], A),
             A.__serde__[JSON_INTO],

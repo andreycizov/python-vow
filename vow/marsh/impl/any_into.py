@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from vow.marsh.error import SerializationError, subserializer
 from vow.marsh.base import Fields, FieldsFac, Mapper, Fac
-from vow.marsh.impl.any import Passthrough, FieldValue
+from vow.marsh.impl.any import This, FieldValue
 
 
 class AnyIntoStructMapper(Mapper):
@@ -79,7 +79,7 @@ class AnyIntoEnum(Fac):
     __mapper_args__ = 'enum',
 
     enum: Type[Enum]
-    value: Fac = field(default_factory=lambda: Passthrough(str))
+    value: Fac = field(default_factory=lambda: This(str))
 
     def create(self, dependencies: Fields) -> Mapper:
         return self.__mapper_cls__(enum=self.enum, dependencies=dependencies)

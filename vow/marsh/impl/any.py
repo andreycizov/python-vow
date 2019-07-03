@@ -1,5 +1,6 @@
+import logging
 from importlib import import_module
-from typing import Any, Type, Optional, Dict, Tuple, List
+from typing import Any, Type, Optional, Dict, Tuple, List, Callable
 
 from dataclasses import dataclass, field, MISSING
 from xrpc.trace import trc
@@ -15,7 +16,7 @@ class AnyAnySelfMapper(Mapper):
         return self.dependencies['self'].serialize(obj)
 
 
-class PassthroughMapper(Mapper):
+class ThisMapper(Mapper):
 
     def __init__(self, type: Optional[Type], dependencies: Fields):
         self.type = type
@@ -38,8 +39,8 @@ class PassthroughMapper(Mapper):
 
 
 @dataclass()
-class Passthrough(Fac):
-    __mapper_cls__ = PassthroughMapper
+class This(Fac):
+    __mapper_cls__ = ThisMapper
     __mapper_args__ = 'type',
 
     type: Optional[Type] = None
@@ -281,15 +282,11 @@ class AnyAnyLookup(Fac):
 class AnyAnyWithMapper(Mapper):
 
     def serialize(self, obj: Any) -> Any:
-        try:
+        with subserializer('$value'):
             obj = self.dependencies['value'].serialize(obj)
-        except SerializationError as e:
-            raise e.with_path('$value')
 
-        try:
+        with subserializer('$child'):
             r = self.dependencies['child'].serialize(obj)
-        except SerializationError as e:
-            raise e.with_path('$child')
 
         return r
 
@@ -303,3 +300,38 @@ class AnyAnyWith(Fac):
 
     def dependencies(self) -> FieldsFac:
         return {'value': self.value, 'child': self.child}
+
+
+class AnyAnyTraceMapper(Mapper):
+    def __init__(self, logger: logging.Logger, level, mapper, dependencies: Fields):
+        self.logger = logger
+        self.level = level
+        self.mapper = mapper
+        super().__init__(dependencies)
+
+    def serialize(self, obj: Any) -> Any:
+        obj = self.dependencies['child'].serialize(obj)
+        if self.logger.level <= self.level:
+            self.logger._log(self.level, '%s', (self.mapper(obj),))
+        return obj
+
+
+@dataclass
+class AnyAnyTrace(Fac):
+    __mapper_cls__ = AnyAnyTraceMapper
+
+    child: Fac
+    name: str = __name__
+    level: Any = logging.DEBUG
+    mapper: Callable[[Any], Any] = lambda x: x
+
+    def create(self, dependencies: Fields) -> Mapper:
+        return self.__mapper_cls__(
+            logger=logging.getLogger(self.name),
+            level=self.level,
+            mapper=self.mapper,
+            dependencies=dependencies
+        )
+
+    def dependencies(self) -> FieldsFac:
+        return {'child': self.child}

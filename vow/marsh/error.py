@@ -1,3 +1,4 @@
+import sys
 from contextlib import contextmanager
 from typing import List, Optional, Any
 
@@ -38,4 +39,5 @@ def subserializer(*path):
     try:
         yield
     except SerializationError as e:
-        raise e.with_path(*path)
+        exc_info = sys.exc_info()
+        raise e.with_path(*path).with_traceback(exc_info[2]) from None

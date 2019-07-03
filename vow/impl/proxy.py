@@ -1,54 +1,18 @@
 import asyncio
 import inspect
-import struct
 from dataclasses import dataclass, field
 
 from argparse import ArgumentParser
 from asyncio import StreamReader, StreamWriter
-from typing import AsyncIterable, Any, Generic, TypeVar, List
+from typing import Generic, TypeVar, List, Dict, Tuple, Any, Optional
 
 from vow.marsh.base import Mapper
 from vow.marsh.decl import get_serializers
 from vow.marsh.error import SerializationError, BUFFER_NEEDED
 from vow.marsh.impl.binary import BINARY_INTO, BINARY_FROM, BinaryNext
-from vow.marsh.impl.json import JSON_INTO
-from vow.marsh.walker import Walker
-from vow.oas.data import JsonAny
-from vow.reqrep import Packet, Type, Service, Header, Begin, Denied, Accepted
+from vow.reqrep import Packet, Service, Header, Begin, Denied, Accepted, PacketType, Request, Error, End
 from xrpc.logging import logging_parser, cli_main
 from xrpc.trace import trc
-
-RPC_PACKET_PACKER = struct.Struct('!L')
-
-
-async def frame_decoder(reader: StreamReader, per_read=2048) -> AsyncIterable[bytes]:
-    buffer = bytes()
-    while True:
-        while True:
-            if len(buffer) >= RPC_PACKET_PACKER.size:
-                curr_size, = RPC_PACKET_PACKER.unpack(buffer[:RPC_PACKET_PACKER.size])
-
-                buffer = buffer[RPC_PACKET_PACKER.size:]
-
-                trc('size').debug('%s', curr_size)
-                break
-            read = await reader.read(per_read)
-            if len(read) == 0:
-                raise ConnectionAbortedError()
-            buffer += read
-        while True:
-            if len(buffer) >= curr_size:
-                yield buffer[:curr_size]
-
-                buffer = buffer[curr_size:]
-                trc('buffer').debug('%s', curr_size)
-                break
-
-            read = await reader.read(per_read)
-            if len(read) == 0:
-                raise ConnectionAbortedError()
-            buffer += read
-
 
 PACKET_MAPPER_INTO, = get_serializers(BINARY_INTO, Packet)
 PACKET_MAPPER_FROM, = get_serializers(BINARY_FROM, Packet)
@@ -117,16 +81,20 @@ async def handle_client(reader: StreamReader, writer: StreamWriter):
         try:
             service = await reader.read()
 
+            if service.stream is not None:
+                raise ProtocolError(f'invalid stream: {service.stream}')
+
             if isinstance(service.body, Service):
                 pass
             else:
                 raise ProtocolError(f'{service}')
 
-            assert isinstance(service.body, Service), service.body
-
             headers: List[Header] = []
             while True:
                 header = await reader.read()
+
+                if header.stream is not None:
+                    raise ProtocolError(f'invalid stream: {service.stream}')
 
                 if isinstance(header.body, Header):
                     headers.append(header.body)
@@ -141,6 +109,21 @@ async def handle_client(reader: StreamReader, writer: StreamWriter):
                 await writer.write(Packet(None, Denied('service unknown', None)))
                 await writer.sync()
                 return
+
+            trc().debug('')
+
+            while True:
+                packet = await reader.read()
+
+                trc().debug('%s', packet)
+
+                if packet.stream is None:
+                    raise ProtocolError(f'{packet}')
+
+                if isinstance(packet.body, Request):
+                    await writer.write(Packet(packet.stream, End(packet.body.body)))
+                else:
+                    await writer.write(Packet(packet.stream, Error('invalid')))
 
         except ProtocolError:
             trc('disco').exception("Exception while communicating")
@@ -233,32 +216,184 @@ async def main_server(addr):
         )
 
 
-async def main_client(addr):
-    try:
-        host, port = addr
-        trc().debug('%s', 'created')
-        await asyncio.sleep(0.33)
+API_VERSION = '0.1.0'
 
-        trc().debug('%s', 'connecting')
+
+@dataclass
+class ClientChannel(Generic[T]):
+    stream_id: str
+    client: Optional['Client']
+    buffer: List[T] = field(default_factory=list)
+
+    async def read(self) -> T:
+        return await self.client.reader_mailboxes[self.stream_id].get()
+
+    async def write(self, obj: T):
+        self.buffer.append(obj)
+
+    async def sync(self):
+        await self.client.writer_mailbox.put([
+            (self.stream_id, x) for x in self.buffer
+        ])
+
+        self.buffer = []
+
+    async def close(self):
+        del self.client.reader_mailboxes[self.stream_id]
+
+        self.client = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if len(self.buffer):
+            await self.sync()
+
+        await self.close()
+
+
+@dataclass
+class Client:
+    reader: FrameReader[Packet]
+    writer: FrameWriter[Packet]
+
+    chan_ctr: int = 0
+
+    writer_mailbox: asyncio.Queue = field(default_factory=asyncio.Queue)
+    reader_mailboxes: Dict[str, asyncio.Queue] = field(default_factory=dict)
+
+    sender_task: Optional[asyncio.Task] = None
+    receiver_task: Optional[asyncio.Task] = None
+
+    def __post_init__(self):
+        self._background_start()
+
+    def channel(self) -> ClientChannel:
+        r = ClientChannel(str(self.chan_ctr), self)
+        self.chan_ctr += 1
+        self.reader_mailboxes[r.stream_id] = asyncio.Queue()
+        return r
+
+    async def sender_coro(self):
+        try:
+            while True:
+                items: List[Tuple[str, PacketType]] = await self.writer_mailbox.get()
+                for stream_id, packet_body in items:
+                    trc().debug('%s %s', stream_id, packet_body)
+                    await self.writer.write(Packet(stream_id, packet_body))
+
+                await self.writer.sync()
+        except asyncio.CancelledError:
+            trc('cancelled').debug('')
+        except:
+            trc().exception('')
+
+    async def receiver_coro(self):
+        try:
+            while True:
+                packet = await self.reader.read()
+
+                if packet.stream is not None:
+                    mb = self.reader_mailboxes.get(packet.stream)
+                    if mb is None:
+                        raise KeyError(f'{packet.stream}')
+                    await mb.put(packet.body)
+                else:
+                    raise ProtocolError(f'post-nego:{packet}')
+        except asyncio.CancelledError:
+            trc('cancelled').debug('')
+        except:
+            trc().exception('')
+
+    @classmethod
+    async def connect(cls, host, port, service, version, headers: Dict[str, str] = None, proto=API_VERSION) -> 'Client':
+        if headers is None:
+            headers = {}
 
         reader, writer = await asyncio.open_connection(host, port)
 
         reader: FrameReader[Packet] = FrameReader(reader, PACKET_MAPPER_FROM)
         writer: FrameWriter[Packet] = FrameWriter(writer, PACKET_MAPPER_INTO)
 
-        trc().debug('%s', 'connecting')
+        await writer.write(Packet(None, Service(name=service, version=version, proto=proto)))
 
-        await writer.write(Packet(None, Begin()))
-        await writer.write(Packet(None, Service('rate_limiter2')))
-        await writer.write(Packet(None, Header('Authorize', 'Bearer: 2342356')))
+        for k, v in headers.items():
+            await writer.write(Packet(None, Header(k, v)))
         await writer.write(Packet(None, Begin()))
         await writer.sync()
 
         item = await reader.read()
 
-        trc().debug('%s', item)
+        if isinstance(item.body, Accepted):
+            trc().debug('connected to %s %s %s', host, port, service)
+        elif isinstance(item.body, Denied):
+            trc().debug('denied to %s %s %s', host, port, service)
+            await writer.__aexit__(None, None, None)
+            raise ConnectionAbortedError(f'{item.body}')
+        else:
+            raise ProtocolError(f'{item}')
 
-        await asyncio.sleep(5)
+        return Client(reader, writer)
+
+    def _background_start(self):
+        self.sender_task = asyncio.create_task(self.sender_coro())
+        self.receiver_task = asyncio.create_task(self.receiver_coro())
+
+    async def __aenter__(self):
+        trc().debug('')
+        """
+        - create a channel for reading data
+        - return a ClientChanneler
+        :return:
+        """
+
+        return self
+
+    async def __aexit__(self, *args):
+        trc().debug('')
+        self.sender_task.cancel()
+        self.receiver_task.cancel()
+
+        self.sender_task = None
+        self.receiver_task = None
+
+        await self.reader.__aexit__(*args)
+        await self.writer.__aexit__(*args)
+
+
+async def main_client(addr):
+    try:
+        trc().debug('%s', 'created')
+        await asyncio.sleep(0.33)
+
+        trc().debug('%s', 'connecting')
+
+        async with await Client.connect(
+                *addr, 'rate_limiter', '0.1.0',
+                {
+                    'Authorize': 'Bearer: 123123'
+                }
+        ) as client:
+            client: Client
+
+            chan1 = client.channel()
+            chan2 = client.channel()
+
+            xx = await asyncio.gather(chan1.write(Request('get')), chan2.write(Request('put', {'a': 'b'})))
+            await asyncio.gather(chan1.sync(), chan2.sync())
+
+            trc('xx').debug('%s', xx)
+
+            yy = await asyncio.gather(chan1.read(), chan2.read())
+
+            trc('yy').debug('%s', yy)
+
+            await asyncio.sleep(1)
+
+            yy = await asyncio.gather(chan1.close(), chan2.close())
+
+            pass
     except:
         trc().exception('$%')
 

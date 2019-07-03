@@ -4,7 +4,7 @@ import unittest
 from xrpc.trace import trc
 
 from vow.marsh.error import SerializationError
-from vow.marsh.impl.any import AnyAnyWith, AnyAnyItem, Passthrough, AnyAnyField, AnyAnyAttr, AnyAnyLen
+from vow.marsh.impl.any import AnyAnyWith, AnyAnyItem, This, AnyAnyField, AnyAnyAttr, AnyAnyLen
 from vow.marsh.impl.any_from import AnyFromStruct
 from vow.marsh.impl.any_into import AnyIntoStruct
 from vow.marsh.impl.binary import BINARY_FROM, BinaryNext, BINARY_INTO
@@ -98,8 +98,8 @@ class TestBytes(unittest.TestCase):
             BinaryFromVarInt(),
             AnyAnyWith(
                 BinaryFromBytes(
-                    AnyAnyAttr('val', Passthrough(int)),
-                    AnyAnyAttr('next', Passthrough())
+                    AnyAnyAttr('val', This(int)),
+                    AnyAnyAttr('next', This())
                 ),
                 AnyFromStruct(
                     [
@@ -117,13 +117,13 @@ class TestBytes(unittest.TestCase):
         )
 
         fac_into = AnyAnyWith(
-            BinaryIntoJson(Passthrough()),
+            BinaryIntoJson(This()),
             BinaryIntoConcat([
                 AnyAnyWith(
-                    AnyAnyLen(Passthrough()),
+                    AnyAnyLen(This()),
                     BinaryIntoVarInt(),
                 ),
-                Passthrough()
+                This()
             ])
         )
 

@@ -11,7 +11,7 @@ from typing_inspect import is_optional_type, get_args, get_last_args
 
 from vow.marsh.helper import is_serializable, DECL_ATTR, FIELD_FACTORY, FIELD_OVERRIDE
 
-from vow.marsh.impl.any import Passthrough, Ref, AnyAnyAttr, AnyAnyItem, AnyAnyField
+from vow.marsh.impl.any import This, Ref, AnyAnyAttr, AnyAnyItem, AnyAnyField
 from vow.marsh.impl.json_from import JsonFromDateTime, JsonFromTimeDelta
 from vow.marsh.impl.any_from import AnyFromStruct, AnyFromEnum
 from vow.marsh.impl.json_into import JsonIntoDateTime, JsonIntoTimeDelta
@@ -26,12 +26,17 @@ else:
 
 
 @dataclass
+class DeferredWrapper:
+    type: Type
+
+
+@dataclass
 class Deferred:
     ctx: 'Walker'
     obj: Any
 
     def execute(self) -> Fac:
-        return self.ctx.resolve(DataclassWrapper(self.obj))
+        return self.ctx.resolve(DeferredWrapper(self.obj))
 
 
 @dataclass
@@ -59,11 +64,6 @@ class Serializers:
 
 
 @dataclass
-class DataclassWrapper:
-    type: Type
-
-
-@dataclass
 class Walker:
     name: str
     frame: Any
@@ -82,7 +82,7 @@ class Walker:
 
     def resolve(self, cls: Type) -> Fac:
         """get a factory given an object cls"""
-        if isinstance(cls, DataclassWrapper):
+        if isinstance(cls, DeferredWrapper):
             cls = cls.type
             assert is_dataclass(cls), cls
             r: List[Fac] = []
@@ -145,13 +145,13 @@ class Walker:
             return Ref(self.name, cls.__module__ + '.' + cls.__name__)
         elif inspect.isclass(cls):
             if issubclass(cls, bool):
-                return Passthrough(bool)
+                return This(bool)
             elif issubclass(cls, float):
-                return Passthrough(float)
+                return This(float)
             elif issubclass(cls, int):
-                return Passthrough(int)
+                return This(int)
             elif issubclass(cls, str):
-                return Passthrough(str)
+                return This(str)
             elif issubclass(cls, datetime):
                 if self.name == 'json_from':
                     return JsonFromDateTime()

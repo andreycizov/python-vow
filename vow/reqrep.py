@@ -8,8 +8,8 @@ from vow.marsh.base import FieldsFac, Mapper, Fac
 from vow.marsh.decl import infer
 from vow.marsh.error import SerializationError
 from vow.marsh.helper import FIELD_FACTORY
-from vow.marsh.impl.any import Passthrough, AnyAnyDiscriminant, Ref, AnyAnyItem, AnyAnySelfMapper, AnyAnyField, \
-    AnyAnyAttr, AnyAnyLookupMapper, AnyAnyWith, AnyAnyLookup, AnyAnyLen
+from vow.marsh.impl.any import This, AnyAnyDiscriminant, Ref, AnyAnyItem, AnyAnySelfMapper, AnyAnyField, \
+    AnyAnyAttr, AnyAnyLookupMapper, AnyAnyWith, AnyAnyLookup, AnyAnyLen, AnyAnyTrace
 from vow.marsh.impl.binary import BinaryNext, BINARY_FROM, BINARY_INTO
 from vow.marsh.impl.binary_from import BinaryFromVarInt, BinaryFromBytes, BinaryFromJson
 from vow.marsh.impl.binary_into import BinaryIntoVarInt, BinaryIntoJson, BinaryIntoConcat
@@ -107,8 +107,8 @@ class JsonIntoPacket(Fac):
                         Type,
                         AnyAnyLookup(
                             AnyAnyWith(
-                                AnyAnyAttr('body', Passthrough()),
-                                AnyAnyAttr('__class__', Passthrough()),
+                                AnyAnyAttr('body', This()),
+                                AnyAnyAttr('__class__', This()),
                             ),
                             {v: k for k, v in PACKET_TYPE_MAP}
                         )
@@ -116,16 +116,16 @@ class JsonIntoPacket(Fac):
                 ),
                 AnyAnyField(
                     'stream',
-                    AnyAnyAttr('stream', JsonAnyOptional(Passthrough(int)))
+                    AnyAnyAttr('stream', JsonAnyOptional(This(str)))
                 ),
                 AnyAnyField(
                     'body',
                     AnyAnyDiscriminant(
                         AnyAnyWith(
-                            AnyAnyAttr('body', Passthrough()),
-                            AnyAnyAttr('__class__', Passthrough()),
+                            AnyAnyAttr('body', This()),
+                            AnyAnyAttr('__class__', This()),
                         ),
-                        AnyAnyAttr('body', Passthrough()),
+                        AnyAnyAttr('body', This()),
                         [(v, Ref(JSON_INTO, v)) for _, v in PACKET_TYPE_MAP]
                     )
                 ),
@@ -150,12 +150,12 @@ class JsonFromPacket(Fac):
                 # )),
                 AnyAnyField(
                     'stream',
-                    AnyAnyItem('stream', JsonAnyOptional(Passthrough(int)))
+                    AnyAnyItem('stream', JsonAnyOptional(This(str)))
                 ),
                 AnyAnyField(
                     'body',
                     AnyAnyDiscriminant(
-                        AnyAnyItem('type', AnyFromEnum(Type, Passthrough(str))),
+                        AnyAnyItem('type', AnyFromEnum(Type, This(str))),
                         AnyAnyItem('body', JsonAnyAny()),
                         [(k, Ref(JSON_FROM, v)) for k, v in PACKET_TYPE_MAP]
                     )
@@ -172,19 +172,22 @@ class BinaryIntoPacket(Fac):
 
     def dependencies(self) -> FieldsFac:
         bin_into = AnyAnyWith(
-            BinaryIntoJson(Passthrough()),
+            BinaryIntoJson(This()),
             BinaryIntoConcat([
                 AnyAnyWith(
-                    AnyAnyLen(Passthrough()),
+                    AnyAnyLen(This()),
                     BinaryIntoVarInt(),
                 ),
-                Passthrough()
+                This()
             ])
         )
         return {
-            'self': AnyAnyWith(
-                Ref(JSON_INTO, Packet),
-                bin_into
+            'self': AnyAnyTrace(
+                AnyAnyWith(
+                    Ref(JSON_INTO, Packet),
+                    bin_into
+                ),
+                name=__name__ + '.into',
             )
         }
 
@@ -197,15 +200,19 @@ class BinaryFromPacket(Fac):
             BinaryFromVarInt(),
             AnyAnyWith(
                 BinaryFromBytes(
-                    AnyAnyAttr('val', Passthrough(int)),
-                    AnyAnyAttr('next', Passthrough())
+                    AnyAnyAttr('val', This(int)),
+                    AnyAnyAttr('next', This())
                 ),
                 AnyFromStruct(
                     [
                         AnyAnyField(
                             'val',
                             BinaryFromJson(
-                                AnyAnyAttr('val')
+                                AnyAnyTrace(
+                                    AnyAnyAttr('val'),
+                                    name=f'{__name__}.from',
+                                    mapper=lambda x: bytes(x),
+                                )
                             )
                         ),
                         AnyAnyField('next', AnyAnyAttr('next'))
@@ -221,6 +228,7 @@ class BinaryFromPacket(Fac):
                     [
                         AnyAnyField(
                             'val',
+
                             AnyAnyWith(
                                 AnyAnyAttr('val'),
                                 Ref(JSON_FROM, Packet)
@@ -237,6 +245,22 @@ class BinaryFromPacket(Fac):
         }
 
 
+PacketType = Union[
+    'Service',
+    'Header',
+    'Begin',
+    'Accepted',
+    'Denied',
+    'Request',
+    'Error',
+    'Cancel',
+    'Start',
+    'Step',
+    'StepAck',
+    'End',
+]
+
+
 @dataclass
 class Packet:
     __serde__ = {
@@ -246,20 +270,7 @@ class Packet:
         BINARY_INTO: BinaryIntoPacket(),
     }
     stream: Optional[str]
-    body: Union[
-        'Service',
-        'Header',
-        'Begin',
-        'Accepted',
-        'Denied',
-        'Request',
-        'Error',
-        'Cancel',
-        'Start',
-        'Step',
-        'StepAck',
-        'End',
-    ]
+    body: PacketType
 
 
 @infer(JSON_INTO, JSON_FROM)
