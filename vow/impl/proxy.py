@@ -4,13 +4,13 @@ from dataclasses import dataclass, field
 
 from argparse import ArgumentParser
 from asyncio import StreamReader, StreamWriter
-from typing import Generic, TypeVar, List, Dict, Tuple, Any, Optional
+from typing import Generic, TypeVar, List, Dict, Tuple, Optional
 
 from vow.marsh.base import Mapper
 from vow.marsh.decl import get_serializers
 from vow.marsh.error import SerializationError, BUFFER_NEEDED
 from vow.marsh.impl.binary import BINARY_INTO, BINARY_FROM, BinaryNext
-from vow.wire import Packet, Service, Header, Begin, Denied, Accepted, PacketType, Request, Error, End
+from vow.rpc.wire import Packet, Service, Header, Begin, Denied, Accepted, PacketType, Request, Error, End
 from xrpc.logging import logging_parser, cli_main
 from xrpc.trace import trc
 

@@ -6,7 +6,7 @@ from xrpc.trace import trc
 from vow.marsh.impl.binary import BINARY_FROM, BINARY_INTO
 from vow.marsh.impl.json import JSON_FROM, JSON_INTO
 from vow.marsh.walker import Walker
-from vow.wire import Packet, Type, Service
+from vow.rpc.wire import Packet, Service
 
 
 class TestRequests(unittest.TestCase):
