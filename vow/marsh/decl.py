@@ -3,7 +3,7 @@ from typing import List, Type, Any, Callable
 
 from dataclasses import dataclass, is_dataclass, field
 
-from vow.marsh.base import Mapper
+from vow.marsh.base import Mapper, Fac
 from vow.marsh.walker import Walker, Serializers, Deferred
 
 
@@ -31,3 +31,13 @@ def get_serializers(name: str, *clss: Type) -> List[Mapper]:
     factories = [walker.resolve(cls) for cls in clss]
 
     return walker.mappers(*factories)
+
+
+def get_factories(name: str, *clss: Type) -> List[Fac]:
+    walker = Walker(name)
+
+    factories = [walker.resolve(cls) for cls in clss]
+
+    node_objs, visit_node, root_nodes = walker._visit_objs(*factories)
+
+    return [node_objs[x][1] for x in root_nodes]

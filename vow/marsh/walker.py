@@ -63,6 +63,14 @@ class Serializers:
         return getattr(obj, DECL_ATTR)
 
 
+VisitId = int
+NodeId = int
+DepId = str
+
+VisitNodeDict = Dict[VisitId, NodeId]
+NodeObjsDict = Dict[NodeId, Tuple[List[DepId], Fac, Dict[DepId, VisitId]]]
+
+
 @dataclass
 class Walker:
     name: str
@@ -233,15 +241,11 @@ class Walker:
             else:
                 raise NotImplementedError(('class', cls, cls.__class__))
 
-    def mappers(self, *roots: Fac) -> List[Mapper]:
-        VisitId = int
-        NodeId = int
-        DepId = str
-
-        visit_node: Dict[VisitId, NodeId] = {}
+    def _visit_objs(self, *roots: Fac) -> Tuple[NodeObjsDict, VisitNodeDict, List[NodeId]]:
+        visit_node: VisitNodeDict = {}
         name_node: Dict[str, NodeId] = {}
 
-        node_objs: Dict[NodeId, Tuple[List[DepId], Fac, Dict[DepId, VisitId]]] = {}
+        node_objs: NodeObjsDict = {}
         to_visit: Deque[Tuple[VisitId, List[DepId], Fac]] = deque()
 
         visit_ctr = count()
@@ -291,6 +295,13 @@ class Walker:
 
         node_objs = {k: (*v, {k2: visit_node[v2] for k2, v2 in deps.items()}) for k, (*v, deps) in node_objs.items()}
 
+        root_nodes = [visit_node[visit_id] for visit_id in root_visit_ids]
+
+        return node_objs, visit_node, root_nodes
+
+    def mappers(self, *roots: Fac) -> List[Mapper]:
+        node_objs, visit_node, root_nodes = self._visit_objs(*roots)
+
         node_deps_empty = {k: {} for k in node_objs.keys()}
         node_mapper = {k: fac.create(node_deps_empty[k]) for k, (_, fac, _) in node_objs.items()}
 
@@ -300,7 +311,6 @@ class Walker:
             for dep_k, dep_n in deps_map.items():
                 deps[dep_k] = node_mapper[dep_n]
 
-        root_nodes = [visit_node[visit_id] for visit_id in root_visit_ids]
         root_mappers = [node_mapper[node_id] for node_id in root_nodes]
 
         return root_mappers
