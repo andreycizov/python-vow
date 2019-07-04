@@ -57,10 +57,8 @@ class AnyIntoEnumMapper(Mapper):
         super().__init__(dependencies)
 
     def serialize(self, obj: Any) -> Any:
-        try:
+        with subserializer('value'):
             obj = self.dependencies['value'].serialize(obj)
-        except SerializationError as e:
-            raise e.with_path('value')
 
         if not isinstance(obj, self.enum):
             raise SerializationError(val=obj, reason='enum_not_enum', origin=self)

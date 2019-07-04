@@ -40,7 +40,7 @@ class Var(Immaterial):
 
 @dataclass
 class Atom(Material):
-    name: str
+    cls: str
 
 
 @dataclass
@@ -62,14 +62,4 @@ class Dict(Material):
 @dataclass
 class Struct(Material):
     fields: typing.Dict[str, Type]
-
-
-@dataclass
-class Dataclass(Struct):
-    name: str
-
-
-@dataclass
-class Class(Material):
-    """Any custom class simply copies the structure of one of the types"""
-    name: str
+    cls: typing.Optional[str] = None

@@ -2,7 +2,7 @@ from typing import Any
 
 from dataclasses import dataclass
 
-from vow.marsh.error import SerializationError
+from vow.marsh.error import SerializationError, subserializer
 from vow.marsh.base import Mapper, Fac, FieldsFac
 
 JSON_FROM = 'json_from'
@@ -13,10 +13,8 @@ class JsonAnyListMapper(Mapper):
     def serialize(self, obj: Any) -> Any:
         r = []
         for i, x in enumerate(obj):
-            try:
+            with subserializer(i):
                 r.append(self.dependencies['value'].serialize(x))
-            except SerializationError as e:
-                raise e.with_path(i)
         return r
 
 
@@ -35,15 +33,11 @@ class JsonAnyDictMapper(Mapper):
         r = {}
 
         for k, v in obj.items():
-            try:
+            with subserializer('$key'):
                 k = self.dependencies['key'].serialize(k)
-            except SerializationError as e:
-                raise e.with_path(k, '$key')
 
-            try:
+            with subserializer('$value'):
                 v = self.dependencies['value'].serialize(v)
-            except SerializationError as e:
-                raise e.with_path(k, '$value')
 
             r[k] = v
         return r
@@ -84,16 +78,12 @@ class JsonAnyAnyMapper(Mapper):
         if isinstance(obj, dict):
             r = {}
             for k, v in obj.items():
-                try:
+                with subserializer('$key'):
                     k = self.serialize(k)
-                except SerializationError as e:
-                    raise e.with_path(k, '$key')
                 assert isinstance(k, str), k
 
-                try:
+                with subserializer('$value'):
                     v = self.serialize(v)
-                except SerializationError as e:
-                    raise e.with_path(k, '$value')
 
                 r[k] = v
             return r
@@ -101,10 +91,8 @@ class JsonAnyAnyMapper(Mapper):
             r = []
 
             for i, v in enumerate(obj):
-                try:
+                with subserializer(i):
                     r.append(self.serialize(v))
-                except SerializationError as e:
-                    raise e.with_path(i)
             return r
         elif isinstance(obj, str):
             return obj
@@ -121,5 +109,3 @@ class JsonAnyAnyMapper(Mapper):
 @dataclass
 class JsonAnyAny(Fac):
     __mapper_cls__ = JsonAnyAnyMapper
-
-

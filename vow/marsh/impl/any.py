@@ -59,10 +59,8 @@ class AnyAnyAttrMapper(Mapper):
             raise SerializationError(val=obj, reason=f'attr_missing', origin=self, exc=e)
 
         if len(self.dependencies):
-            try:
+            with subserializer('$attr'):
                 return self.dependencies['type'].serialize(r)
-            except SerializationError as e:
-                raise e.with_path('$attr')
         else:
             return r
 
@@ -89,15 +87,16 @@ class AnyAnyItemMapper(Mapper):
         super().__init__(dependencies)
 
     def serialize(self, obj: Any) -> Any:
+        if not hasattr(obj, '__getitem__'):
+            raise SerializationError(val=obj, reason='invalid_obj', origin=self)
+
         try:
             r = obj[self.name]
         except KeyError as e:
             raise SerializationError(val=obj, reason='key_missing', exc=e, origin=self)
 
-        try:
+        with subserializer('$item'):
             return self.dependencies['type'].serialize(r)
-        except SerializationError as e:
-            raise e.with_path('$item')
 
 
 @dataclass()
@@ -150,27 +149,21 @@ class AnyAnyDiscriminantMapper(Mapper):
         super().__init__(dependencies)
 
     def serialize(self, obj: Any) -> Any:
-        try:
+        with subserializer('$discriminant'):
             discriminant = self.dependencies['discriminant'].serialize(obj)
-        except SerializationError as e:
-            raise e.with_path('$discriminant')
 
         if discriminant not in self.items:
             raise SerializationError(val=obj, path=['$value'], origin=self,
                                      reason=f'`{discriminant}` is not in the map')
 
-        try:
+        with subserializer('$value'):
             value = self.dependencies['value'].serialize(obj)
-        except SerializationError as e:
-            raise e.with_path('$value')
 
         depk = self.items[discriminant]
         dep = self.dependencies[depk]
 
-        try:
+        with subserializer('$sub'):
             return dep.serialize(value)
-        except SerializationError as e:
-            raise e.with_path('$sub', depk)
 
 
 @dataclass
@@ -212,10 +205,8 @@ class AnyAnyFieldMapper(Mapper):
     def serialize(self, obj: Any) -> FieldValue:
         v = self.dependencies['item']
 
-        try:
+        with subserializer(self.name):
             obj = v.serialize(obj)
-        except SerializationError as e:
-            raise e.with_path(self.name)
 
         return FieldValue(self.name, obj)
 
@@ -256,10 +247,8 @@ class AnyAnyLookupMapper(Mapper):
         super().__init__(dependencies)
 
     def serialize(self, obj: Any) -> Any:
-        try:
+        with subserializer('$value'):
             obj2 = self.dependencies['value'].serialize(obj)
-        except SerializationError as e:
-            raise e.with_path('$value')
 
         if obj2 not in self.lookup:
             raise SerializationError(val=obj, exc=KeyError(obj2), reason='key_missing')

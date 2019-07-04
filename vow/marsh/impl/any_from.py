@@ -34,10 +34,8 @@ class AnyFromStruct(AnyIntoStruct):
 
 class AnyFromEnumMapper(AnyIntoEnumMapper):
     def serialize(self, obj: Any) -> Any:
-        try:
+        with subserializer('$value'):
             obj2 = self.dependencies['value'].serialize(obj)
-        except SerializationError as e:
-            raise e.with_path('$value')
 
         try:
             return self.enum(obj2)

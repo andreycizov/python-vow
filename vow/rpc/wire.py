@@ -330,7 +330,8 @@ class Cancel:
 @infer(JSON_INTO, JSON_FROM)
 @dataclass
 class Start:
-    max_inflight: int
+    """the maximum amount of messages that are in flight before the server stops sending them"""
+    buffer: int
     body: JsonAny = field(default=None, metadata={FIELD_FACTORY: JsonAnyAny()})
 
 
@@ -344,13 +345,16 @@ class Step:
 @infer(JSON_INTO, JSON_FROM)
 @dataclass
 class StepAck:
+    """index of the last seen message"""
     index: int
-    max_inflight: Optional[int] = None
+    """the maximum amount of messages that are in flight before the server stops sending them"""
+    buffer: Optional[int] = None
 
 
 @infer(JSON_INTO, JSON_FROM)
 @dataclass
 class End:
+    cancelled: bool = False
     body: JsonAny = field(default=None, metadata={FIELD_FACTORY: JsonAnyAny()})
 
 

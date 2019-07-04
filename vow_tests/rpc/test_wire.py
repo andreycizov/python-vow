@@ -9,7 +9,7 @@ from vow.marsh.walker import Walker
 from vow.rpc.wire import Packet, Service
 
 
-class TestRequests(unittest.TestCase):
+class TestWire(unittest.TestCase):
     def test_api_1(self):
         pkt = Packet(None, Service('ratelimiter'))
 

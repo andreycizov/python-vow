@@ -1,6 +1,7 @@
 from typing import Type
 
 DECL_ATTR = '__serde__'
+DECL_CALLABLE_ATTR = '__serde_callable__'
 FIELD_OVERRIDE = '__marsh_override__'
 FIELD_FACTORY = '__marsh_factory__'
 

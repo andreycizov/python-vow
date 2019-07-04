@@ -9,7 +9,7 @@ from typing import Type, Any, List, Dict, Tuple, Union, Deque
 from dataclasses import is_dataclass, dataclass, fields, Field, field, MISSING
 from typing_inspect import is_optional_type, get_args, get_last_args
 
-from vow.marsh.helper import is_serializable, DECL_ATTR, FIELD_FACTORY, FIELD_OVERRIDE
+from vow.marsh.helper import is_serializable, DECL_ATTR, FIELD_FACTORY, FIELD_OVERRIDE, DECL_CALLABLE_ATTR
 
 from vow.marsh.impl.any import This, Ref, AnyAnyAttr, AnyAnyItem, AnyAnyField
 from vow.marsh.impl.json_from import JsonFromDateTime, JsonFromTimeDelta
@@ -23,6 +23,18 @@ if sys.version_info >= (3, 7):
     from typing import ForwardRef
 else:
     from typing import _ForwardRef as ForwardRef
+
+
+class Kind(Enum):
+    Iterator = 1
+    Call = 2
+
+
+@dataclass
+class CallableSerializers:
+    kind: Kind
+    parameters: Dict[str, Fac] = field(default_factory=dict)
+    return_: Dict[str, Fac] = field(default_factory=dict)
 
 
 @dataclass
@@ -63,6 +75,16 @@ class Serializers:
         return getattr(obj, DECL_ATTR)
 
 
+@dataclass
+class Return:
+    type: Type
+
+
+@dataclass
+class Args:
+    type: Type
+
+
 VisitId = int
 NodeId = int
 DepId = str
@@ -90,6 +112,31 @@ class Walker:
 
     def resolve(self, cls: Type) -> Fac:
         """get a factory given an object cls"""
+
+        def resolve_list(cls):
+            vt, = get_args(cls)
+
+            value = self.resolve(vt)
+
+            if self.name.startswith('json'):
+                return JsonAnyList(value)
+            else:
+                raise NotImplementedError(f'{self.name}')
+
+        def resolve_dict(cls):
+            kt, vt = get_args(cls)
+
+            if self.name == 'json_into':
+                assert issubclass(kt, str), (kt,)
+
+            key = self.resolve(kt)
+            value = self.resolve(vt)
+
+            if self.name.startswith('json'):
+                return JsonAnyDict(key, value)
+            else:
+                raise NotImplementedError(f'{self.name}')
+
         if isinstance(cls, DeferredWrapper):
             cls = cls.type
             assert is_dataclass(cls), cls
@@ -149,6 +196,12 @@ class Walker:
                 )
             else:
                 raise NotImplementedError((self.name, None))
+        elif isinstance(cls, Args):
+            dx: CallableSerializers = getattr(cls.type, DECL_CALLABLE_ATTR)
+            return dx.parameters[self.name]
+        elif isinstance(cls, Return):
+            dx: CallableSerializers = getattr(cls.type, DECL_CALLABLE_ATTR)
+            return dx.return_[self.name]
         elif is_serializable(cls):
             return Ref(self.name, cls.__module__ + '.' + cls.__name__)
         elif inspect.isclass(cls):
@@ -175,27 +228,9 @@ class Walker:
                 else:
                     raise NotImplementedError(f'{self.name}')
             elif issubclass(cls, List):
-                vt, = get_args(cls)
-
-                value = self.resolve(vt)
-
-                if self.name.startswith('json'):
-                    return JsonAnyList(value)
-                else:
-                    raise NotImplementedError(f'{self.name}')
+                return resolve_list(cls)
             elif issubclass(cls, Dict):
-                kt, vt = get_args(cls)
-
-                if self.name == 'json_into':
-                    assert issubclass(kt, str), (kt,)
-
-                key = self.resolve(kt)
-                value = self.resolve(vt)
-
-                if self.name.startswith('json'):
-                    return JsonAnyDict(key, value)
-                else:
-                    raise NotImplementedError(f'{self.name}')
+                return resolve_dict(cls)
             elif issubclass(cls, Enum):
                 clss = set(item.value.__class__ for item in cls)
 
@@ -238,6 +273,11 @@ class Walker:
                     return JsonAnyOptional(value)
                 else:
                     raise NotImplementedError(f'{self.name}')
+            elif sys.version_info >= (3, 7) and hasattr(cls, '__origin__'):
+                if cls.__origin__ is list:
+                    return resolve_list(cls)
+                elif cls.__origin__ is dict:
+                    return resolve_dict(cls)
             else:
                 raise NotImplementedError(('class', cls, cls.__class__))
 

@@ -34,10 +34,24 @@ class SerializationError(Exception):
         return replace(self, path=list(path) + self.path)
 
 
-@contextmanager
-def subserializer(*path):
-    try:
-        yield
-    except SerializationError as e:
-        exc_info = sys.exc_info()
-        raise e.with_path(*path).with_traceback(exc_info[2]) from None
+class subserializer:
+    def __init__(self, *path):
+        self.path = path
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, e, exc_tb):
+        if exc_type is not None:
+            if issubclass(exc_type, SerializationError):
+                raise e.with_path(*self.path).with_traceback(exc_tb) from None
+
+# @contextmanager
+# def subserializer(*path):
+
+#    return Subserializer(list(path))
+#     try:
+#         yield
+#     except SerializationError as e:
+#         exc_info = sys.exc_info()
+#         raise e.with_path(*path).with_traceback(exc_info[2]) from None
