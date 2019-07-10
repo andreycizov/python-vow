@@ -1,16 +1,18 @@
 import asyncio
 import inspect
 from dataclasses import dataclass, field
+from enum import Enum
 
 from argparse import ArgumentParser
-from asyncio import StreamReader, StreamWriter
+from asyncio import StreamReader, StreamWriter, create_task, gather, wait, FIRST_COMPLETED
 from typing import Generic, TypeVar, List, Dict, Tuple, Optional
 
 from vow.marsh.base import Mapper
 from vow.marsh.decl import get_serializers
 from vow.marsh.error import SerializationError, BUFFER_NEEDED
 from vow.marsh.impl.binary import BINARY_INTO, BINARY_FROM, BinaryNext
-from vow.rpc.wire import Packet, Service, Header, Begin, Denied, Accepted, PacketType, Request, Error, End
+from vow.rpc.decl import MethodSet
+from vow.rpc.wire import Packet, Service, Header, Begin, Denied, Accepted, PacketType, Request, Error, End, Cancel
 from xrpc.logging import logging_parser, cli_main
 from xrpc.trace import trc
 
@@ -69,155 +71,203 @@ class FrameWriter(Generic[T]):
         self.writer.close()
 
 
+class ErrorCode(Enum):
+    STREAM_UNK = 1
+    STREAM_NULL = 2
+    STREAM_USED = 3
+    HEADER_PENDING = 15
+
+
 class ProtocolError(Exception):
-    pass
+    def __init__(self, code: ErrorCode, msg: str = None):
+        super().__init__(f'Code=`{code}` Msg=`{msg}`')
+        self.code = code
+        self.msg = msg
 
 
 class CallError(Exception):
     pass
 
 
-async def handle_client(reader: StreamReader, writer: StreamWriter):
-    reader: FrameReader[Packet] = FrameReader(reader, PACKET_MAPPER_FROM)
-    writer: FrameWriter[Packet] = FrameWriter(writer, PACKET_MAPPER_INTO)
+@dataclass
+class ServerClient:
+    write_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
+    streams: Dict[str, asyncio.Queue] = field(default_factory=dict)
 
-    async with reader, writer:
-        try:
-            service = await reader.read()
+    async def stream_main(self, stream: str, request: Request):
+        queue = self.streams[stream]
 
-            if service.stream is not None:
-                raise ProtocolError(f'invalid stream: {service.stream}')
+        del self.streams[stream]
+        await queue.put((stream, [End(request.body)]))
 
-            if isinstance(service.body, Service):
-                pass
-            else:
-                raise ProtocolError(f'{service}')
+    async def main(self, reader: StreamReader, writer: StreamWriter):
+        reader: FrameReader[Packet] = FrameReader(reader, PACKET_MAPPER_FROM)
+        writer: FrameWriter[Packet] = FrameWriter(writer, PACKET_MAPPER_INTO)
 
-            headers: List[Header] = []
-            while True:
-                header = await reader.read()
+        async with reader, writer:
+            try:
+                service = await reader.read()
 
-                if header.stream is not None:
-                    raise ProtocolError(f'invalid stream: {service.stream}')
+                if service.stream is not None:
+                    raise ProtocolError(ErrorCode.STREAM_UNK, f'{service.stream}')
 
-                if isinstance(header.body, Header):
-                    headers.append(header.body)
-                elif isinstance(header.body, Begin):
-                    break
+                if isinstance(service.body, Service):
+                    pass
                 else:
-                    raise ProtocolError(f'{header}')
+                    raise ProtocolError(ErrorCode.HEADER_PENDING)
 
-            if service.body.name == 'rate_limiter':
-                await writer.write(Packet(None, Accepted()))
-            else:
-                await writer.write(Packet(None, Denied('service unknown', None)))
-                await writer.sync()
-                return
+                headers: List[Header] = []
+                while True:
+                    header = await reader.read()
 
-            trc().debug('')
+                    if header.stream is not None:
+                        raise ProtocolError(ErrorCode.STREAM_UNK, f'{header.stream}')
 
-            while True:
-                packet = await reader.read()
+                    if isinstance(header.body, Header):
+                        headers.append(header.body)
+                    elif isinstance(header.body, Begin):
+                        break
+                    else:
+                        raise ProtocolError(ErrorCode.HEADER_PENDING)
 
-                trc().debug('%s', packet)
-
-                if packet.stream is None:
-                    raise ProtocolError(f'{packet}')
-
-                if isinstance(packet.body, Request):
-                    await writer.write(Packet(packet.stream, End(packet.body.body)))
+                # todo name!!!
+                if service.body.name == 'rate_limiter':
+                    await writer.write(Packet(None, Accepted()))
                 else:
-                    await writer.write(Packet(packet.stream, Error('invalid')))
+                    await writer.write(Packet(None, Denied('service unknown', None)))
+                    await writer.sync()
+                    return
 
-        except ProtocolError:
-            trc('disco').exception("Exception while communicating")
-        except ConnectionAbortedError:
-            trc('disco').debug("")
+                reader_task = create_task(reader.read())
+                writer_task = create_task(self.write_queue.get())
 
-        # todo this is still not enough
-        # todo writer may stall on trying to close the client that never reads
+                while True:
+                    done, pending = await wait({reader_task, writer_task}, return_when=FIRST_COMPLETED)
+
+                    if reader_task in done:
+                        packet = await reader_task
+
+                        reader_task = create_task(reader.read())
+
+                        trc().debug('%s', packet)
+
+                        if packet.stream is None:
+                            raise ProtocolError(ErrorCode.STREAM_UNK)
+
+                        if isinstance(packet.body, Request):
+                            if packet.stream in self.streams:
+                                raise ProtocolError(ErrorCode.STREAM_USED)
+
+                            self.streams[packet.stream] = asyncio.Queue()
+
+                            create_task(self.stream_main(packet.stream, packet.body))
+                        else:
+                            queue = self.streams.get(packet.stream)
+                            if queue is None:
+                                if isinstance(packet.body, Cancel):
+                                    pass
+                                else:
+                                    raise ProtocolError(ErrorCode.STREAM_UNK)
+                            else:
+                                queue.put(packet.body)
+
+                    if writer_task in done:
+                        payload: Tuple[str, List[PacketType]] = await writer_task
+
+                        stream, bodies = payload
+
+                        assert stream in self.streams
+
+                        writer_task = create_task(self.write_queue.get())
+
+                        for body in bodies:
+                            await writer.write(Packet(stream, body))
+
+                        await writer.sync()
+
+            except ProtocolError:
+                trc('disco').exception("Exception while communicating")
+            except ConnectionAbortedError:
+                trc('disco').debug("")
+
+            # todo this is still not enough
+            # todo writer may stall on trying to close the client that never reads
 
 
-async def handle_clients(queue: asyncio.Queue, queue_out: asyncio.Queue):
-    while True:
-        trc('1').debug('w')
-        reader, writer = await queue.get()
+@dataclass
+class Server:
+    host: str
+    port: int
+    rpc_set: MethodSet
 
-        trc('0').debug('connected')
+    async def main(self):
+        queue = asyncio.Queue()
 
-        task = asyncio.create_task(handle_client(reader, writer))
+        async def _handle_client(reader, writer):
+            await queue.put((reader, writer))
 
-        await queue_out.put(task)
+        task1 = create_task(self.client_sync(queue))
 
+        server = await asyncio.start_server(
+            _handle_client, self.host, self.port)
 
-async def handle_client_exits(queue: asyncio.Queue):
-    """makes sure that all of the exceptions in client threads are propagated upwards"""
-    # todo move this to handle_clients - should be enough
-    tasks = set()
-    tasks_fut = None
-    while True:
-        queue_get_fut = asyncio.create_task(queue.get())
-        both_futs = {queue_get_fut}
+        addr = server.sockets[0].getsockname()
 
-        if tasks_fut:
-            both_futs.add(tasks_fut)
+        trc().debug('%s', addr)
 
-        trc('4').debug('%s', both_futs)
+        async with server:
+            await gather(
+                server.serve_forever(),
+                task1
+            )
 
-        done, pending = await asyncio.wait(both_futs, return_when=asyncio.FIRST_COMPLETED)
-
-        trc('0').debug('%s', tasks_fut)
-
-        if queue_get_fut in done:
-            task: asyncio.Task = await queue_get_fut
-
-            trc('1').debug('%s', task)
-
-            tasks.add(task)
+    async def client_sync(self, queue: asyncio.Queue):
+        """makes sure that all of the exceptions in client threads are propagated upwards"""
+        tasks = set()
+        tasks_fut = None
+        while True:
+            queue_get_fut = create_task(queue.get())
+            both_futs = {queue_get_fut}
 
             if tasks_fut:
-                tasks_fut.cancel()
+                both_futs.add(tasks_fut)
 
-            tasks_fut = asyncio.create_task(asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED))
-        if tasks_fut is not None and tasks_fut in done:
-            done, pending = await tasks_fut
+            trc('4').debug('%s', both_futs)
 
-            trc('2').debug('%s', done)
-            for x in done:
-                await x
-                tasks.remove(x)
+            done, pending = await wait(both_futs, return_when=FIRST_COMPLETED)
 
-            if len(tasks):
-                tasks_fut = asyncio.create_task(asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED))
-            else:
-                tasks_fut = None
+            trc('0').debug('%s', tasks_fut)
+
+            if queue_get_fut in done:
+                reader, writer = await queue_get_fut
+
+                task = create_task(ServerClient().main(reader, writer))
+
+                trc('1').debug('%s', task)
+
+                tasks.add(task)
+
+                if tasks_fut:
+                    tasks_fut.cancel()
+
+                tasks_fut = create_task(asyncio.wait(tasks, return_when=FIRST_COMPLETED))
+
+            if tasks_fut is not None and tasks_fut in done:
+                done, pending = await tasks_fut
+
+                trc('2').debug('%s', done)
+                for x in done:
+                    await x
+                    tasks.remove(x)
+
+                if len(tasks):
+                    tasks_fut = create_task(asyncio.wait(tasks, return_when=FIRST_COMPLETED))
+                else:
+                    tasks_fut = None
 
 
 async def main_server(addr):
-    host, port = addr
-
-    queue = asyncio.Queue()
-    queue_out = asyncio.Queue()
-
-    async def _handle_client(reader, writer):
-        await queue.put((reader, writer))
-
-    task1 = asyncio.create_task(handle_clients(queue, queue_out))
-    task2 = asyncio.create_task(handle_client_exits(queue_out))
-
-    server = await asyncio.start_server(
-        _handle_client, host, port)
-
-    addr = server.sockets[0].getsockname()
-
-    trc().debug('%s', addr)
-
-    async with server:
-        await asyncio.gather(
-            server.serve_forever(),
-            task1,
-            task2
-        )
+    await Server(*addr).main()
 
 
 API_VERSION = '0.1.0'

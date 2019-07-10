@@ -355,8 +355,8 @@ class StepAck:
 @infer(JSON_INTO, JSON_FROM)
 @dataclass
 class End:
-    cancelled: bool = False
     body: JsonAny = field(default=None, metadata={FIELD_FACTORY: JsonAnyAny()})
+    cancelled: bool = False
 
 
 PACKET_TYPE_MAP = [

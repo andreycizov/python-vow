@@ -22,6 +22,24 @@ class Method:
 
 
 @dataclass
+class MethodSet:
+    items: List[Tuple[Method, Any]] = field(default_factory=list)
+
+
+@dataclass
+class RPCSet:
+    items: List[Tuple['rpc', Any]] = field(default_factory=list)
+
+    def to_methods(self, ser_name: str, des_name: str):
+        r = []
+
+        for rpc_, fun in self.items:
+            r.append((rpc_.to_method(fun, ser_name, des_name), fun))
+
+        return MethodSet(r)
+
+
+@dataclass
 class rpc:
     # we could say we only support classes as RPCs!
 
@@ -57,7 +75,7 @@ class rpc:
         item: rpc = replace(self)
 
         if item.name is None:
-            item = replace(item, name=fun.__qualname__)
+            item = replace(item, name=fun.__name__)
 
         if item.kind is None:
             item = replace(item, kind=auto_callable_kind_reply(fun, is_method=item.is_method)[0])
@@ -68,6 +86,11 @@ class rpc:
 
         if item.signature is None:
             signature = inspect.signature(fun)
+
+            if self.is_method:
+                parms = list(signature.parameters.items())[1:]
+                signature = signature.replace(parameters=[x for _, x in parms])
+
             item = replace(item, signature=signature)
 
         setattr(fun, '__rpc__', item)
@@ -77,11 +100,11 @@ class rpc:
         return fun
 
 
-def collect(obj) -> List[Tuple[Any, rpc]]:
+def collect(obj) -> RPCSet:
     r: List[Tuple[rpc, Any]] = []
     for x in dir(obj):
         y = getattr(obj, x)
         if hasattr(y, '__rpc__'):
             r.append((y.__rpc__, y))
 
-    return r
+    return RPCSet(r)

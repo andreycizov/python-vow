@@ -8,11 +8,12 @@ from dataclasses import dataclass, replace
 from vow.marsh.decl import infer, get_serializers
 from vow.marsh.impl.json import JSON_FROM, JSON_INTO
 from vow.marsh.walker import Args
-from vow.rpc.decl import rpc
+from vow.rpc.decl import rpc, collect
 from vow.rpc.wire import Header
 from xrpc.trace import trc
 
 
+@infer(JSON_INTO, JSON_FROM)
 @dataclass
 class Tumblr:
     a: int = 5
@@ -54,7 +55,7 @@ class TestDecl(unittest.TestCase):
         def func5(a: int, b) -> AsyncIterable[Header]:
             pass
 
-        @rpc()
+        @rpc(is_method=False)
         @infer(JSON_INTO, JSON_FROM)
         def func6(a: int, *b: int, d: int = 6, **kwargs: Header) -> AsyncIterable[Header]:
             pass
@@ -76,3 +77,12 @@ class TestDecl(unittest.TestCase):
 
         # trc().debug('%s %s', fac_args6, fac_ret6)
         trc().debug('%s', signature(func6).bind(**map_args6.serialize(args)))
+
+        rr = collect(Methodist).to_methods(JSON_INTO, JSON_FROM)
+
+        rr2 = collect(Methodist()).to_methods(JSON_INTO, JSON_FROM)
+
+        trc().debug('%s', rr)
+        trc().debug('%s', rr2)
+
+        assert False

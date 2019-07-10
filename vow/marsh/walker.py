@@ -371,20 +371,6 @@ def _load_fun_parameters(fun, is_method=False):
 
     params = OrderedDict()
 
-    trc().debug('%s %s %s %s %s',
-                inspect.ismethod(fun),
-                inspect.ismethoddescriptor(fun),
-                inspect.ismemberdescriptor(fun),
-                inspect.isgetsetdescriptor(fun),
-                is_method
-                )
-
-    trc().debug('%s', dir(fun))
-    trc('c').debug('%s', getattr(fun, '__class__', None))
-    trc('c').debug('%s', getattr(fun, '__module__', None))
-    trc('c').debug('%s', getattr(fun, '__qualname__', None))
-    trc('c').debug('%s', getattr(fun, '__name__', None))
-
     for i, (_, param) in enumerate(signature.parameters.items()):
         param: inspect.Parameter
 
@@ -405,8 +391,6 @@ def _load_fun_parameters(fun, is_method=False):
             params[param.name] = typing.Dict[str, param.annotation]
         else:
             raise ValueError(f'Not supported: {param}')
-
-    trc().debug('%s', params)
 
     return params, signature.return_annotation
 
