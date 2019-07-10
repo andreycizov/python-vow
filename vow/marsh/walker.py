@@ -84,7 +84,7 @@ class Return:
 
 @dataclass
 class Args:
-    type: Type
+    type: Any
 
 
 VisitId = int

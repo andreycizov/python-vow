@@ -3,6 +3,8 @@ from inspect import signature
 
 from typing import AsyncIterable, Iterable
 
+from dataclasses import dataclass, replace
+
 from vow.marsh.decl import infer, get_serializers
 from vow.marsh.impl.json import JSON_FROM, JSON_INTO
 from vow.marsh.walker import Args
@@ -11,11 +13,20 @@ from vow.rpc.wire import Header
 from xrpc.trace import trc
 
 
+@dataclass
+class Tumblr:
+    a: int = 5
+    c: int = 7
+
+
 class Methodist:
-    @rpc(is_method=True)
-    @infer(JSON_INTO, JSON_FROM, is_method=True)
+    @rpc()
     def meth1(self, a: int, b: str) -> Header:
         pass
+
+    @rpc()
+    def meth2(self, a: int, b: Tumblr) -> Tumblr:
+        return replace(b, c=b.c + 1)
 
 
 class TestDecl(unittest.TestCase):

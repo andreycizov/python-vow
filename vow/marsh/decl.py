@@ -1,6 +1,6 @@
 import inspect
 
-from typing import List, Type
+from typing import List, Type, Any
 
 from dataclasses import dataclass, is_dataclass, field
 
@@ -42,10 +42,12 @@ class infer:
         return obj
 
 
-def get_serializers(name: str, *clss: Type) -> List[Mapper]:
+def get_serializers(name: str, *clss: Any) -> List[Mapper]:
     walker = Walker(name)
 
     factories = [walker.resolve(cls) for cls in clss]
+
+    walker = Walker(None)
 
     return walker.mappers(*factories)
 
@@ -55,6 +57,11 @@ def get_mappers(*facs: Fac) -> List[Mapper]:
     walker = Walker(None)
 
     return walker.mappers(*facs)
+
+
+def get_factories_il(name: str, cls: Any) -> Fac:
+    walker = Walker(name)
+    return walker.resolve(cls)
 
 
 def get_factories(name: str, *clss: Type) -> List[Fac]:

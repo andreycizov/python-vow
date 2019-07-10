@@ -1,52 +1,12 @@
 import inspect
 
-from collections import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, field
 from typing import Optional, List, Tuple, Any
 
-from vow.marsh.base import Fac, Mapper
-from vow.marsh.decl import get_mappers
-from vow.marsh.walker import Kind, auto_callable_kind_reply
-
-
-@dataclass
-class MethodMeta:
-    name: str
-    is_async: bool
-    kind: Kind
-    signature: inspect.Signature
-    input_into: Fac
-    input_from: Fac
-    output_into: Fac
-    output_from: Fac
-
-    def get_client(self) -> 'Method':
-        a, b = get_mappers(self.input_into, self.output_from)
-        return Method(
-            self.name,
-            self.is_async,
-            self.kind,
-            self.signature,
-            input_mapper=a,
-            output_mapper=b,
-        )
-
-    def get_server(self) -> 'Method':
-        a, b = get_mappers(self.input_from, self.output_into)
-        return Method(
-            self.name,
-            self.is_async,
-            self.kind,
-            self.signature,
-            input_mapper=a,
-            output_mapper=b,
-        )
-
-
-@dataclass
-class MethodDef:
-    method: MethodMeta
-    callable: Callable
+from vow.marsh.base import Mapper
+from vow.marsh.decl import get_mappers, get_factories_il, infer
+from vow.marsh.impl.json import JSON_INTO, JSON_FROM
+from vow.marsh.walker import Kind, auto_callable_kind_reply, Return, Args
 
 
 @dataclass
@@ -55,21 +15,42 @@ class Method:
     is_async: bool
     kind: Kind
     signature: inspect.Signature
-    input_mapper: Mapper
-    output_mapper: Mapper
+    input_into: Mapper
+    input_from: Mapper
+    output_into: Mapper
+    output_from: Mapper
 
 
 @dataclass
 class rpc:
-    is_method: bool = False
+    # we could say we only support classes as RPCs!
+
+    is_method: bool = True
     name: Optional[str] = None
     kind: Optional[Kind] = None
     is_async: Optional[bool] = None
     signature: Optional[inspect.Signature] = None
+    serializers: List[str] = field(default_factory=lambda: [JSON_FROM, JSON_INTO])
 
-    def to_method(self, ser_name: str, des_name: str) -> Method:
-        return MethodMeta(
+    def to_method(self, fun, ser_name: str, des_name: str) -> 'Method':
+        # needs the callable itself to extract the serializers
 
+        input_into, output_into, input_from, output_from = get_mappers(
+            get_factories_il(ser_name, Args(fun)),
+            get_factories_il(ser_name, Return(fun)),
+            get_factories_il(des_name, Args(fun)),
+            get_factories_il(des_name, Return(fun)),
+        )
+
+        return Method(
+            name=self.name,
+            is_async=self.is_async,
+            kind=self.kind,
+            signature=self.signature,
+            input_into=input_into,
+            output_into=output_into,
+            input_from=input_from,
+            output_from=output_from
         )
 
     def __call__(self, fun):
@@ -90,6 +71,9 @@ class rpc:
             item = replace(item, signature=signature)
 
         setattr(fun, '__rpc__', item)
+
+        fun = infer(*self.serializers, is_method=self.is_method)(fun)
+
         return fun
 
 
