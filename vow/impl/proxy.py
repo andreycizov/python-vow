@@ -73,6 +73,10 @@ class ProtocolError(Exception):
     pass
 
 
+class CallError(Exception):
+    pass
+
+
 async def handle_client(reader: StreamReader, writer: StreamWriter):
     reader: FrameReader[Packet] = FrameReader(reader, PACKET_MAPPER_FROM)
     writer: FrameWriter[Packet] = FrameWriter(writer, PACKET_MAPPER_INTO)
@@ -311,6 +315,7 @@ class Client:
         if headers is None:
             headers = {}
 
+        # todo we need to add a timeout here (or somewhere else)
         reader, writer = await asyncio.open_connection(host, port)
 
         reader: FrameReader[Packet] = FrameReader(reader, PACKET_MAPPER_FROM)

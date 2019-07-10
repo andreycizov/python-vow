@@ -349,6 +349,7 @@ class StepAck:
     index: int
     """the maximum amount of messages that are in flight before the server stops sending them"""
     buffer: Optional[int] = None
+    body: JsonAny = field(default=None, metadata={FIELD_FACTORY: JsonAnyAny()})
 
 
 @infer(JSON_INTO, JSON_FROM)

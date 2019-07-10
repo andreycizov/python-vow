@@ -1,138 +1,103 @@
 import inspect
-from importlib import import_module
 
-import typing
-from collections import Callable, OrderedDict
-from dataclasses import dataclass
-from typing_inspect import get_args
+from collections import Callable
+from dataclasses import dataclass, replace
+from typing import Optional, List, Tuple, Any
 
-from vow.marsh.base import Fac
-from vow.marsh.impl.any import AnyAnyField, AnyAnyItem, AnyAnyAttr
-from vow.marsh.impl.any_from import AnyFromStruct
-from vow.marsh.impl.any_into import AnyIntoStruct
-from vow.marsh.impl.json import JSON_INTO, JSON_FROM
-from vow.marsh.walker import Walker, Kind
-from xrpc.trace import trc
+from vow.marsh.base import Fac, Mapper
+from vow.marsh.decl import get_mappers
+from vow.marsh.walker import Kind, auto_callable_kind_reply
+
+
+@dataclass
+class MethodMeta:
+    name: str
+    is_async: bool
+    kind: Kind
+    signature: inspect.Signature
+    input_into: Fac
+    input_from: Fac
+    output_into: Fac
+    output_from: Fac
+
+    def get_client(self) -> 'Method':
+        a, b = get_mappers(self.input_into, self.output_from)
+        return Method(
+            self.name,
+            self.is_async,
+            self.kind,
+            self.signature,
+            input_mapper=a,
+            output_mapper=b,
+        )
+
+    def get_server(self) -> 'Method':
+        a, b = get_mappers(self.input_from, self.output_into)
+        return Method(
+            self.name,
+            self.is_async,
+            self.kind,
+            self.signature,
+            input_mapper=a,
+            output_mapper=b,
+        )
+
+
+@dataclass
+class MethodDef:
+    method: MethodMeta
+    callable: Callable
 
 
 @dataclass
 class Method:
     name: str
+    is_async: bool
     kind: Kind
-    input: Fac
-    output: Fac
+    signature: inspect.Signature
+    input_mapper: Mapper
+    output_mapper: Mapper
 
 
 @dataclass
-class MethodCallable:
-    method: Method
-    callable: Callable
+class rpc:
+    is_method: bool = False
+    name: Optional[str] = None
+    kind: Optional[Kind] = None
+    is_async: Optional[bool] = None
+    signature: Optional[inspect.Signature] = None
+
+    def to_method(self, ser_name: str, des_name: str) -> Method:
+        return MethodMeta(
+
+        )
+
+    def __call__(self, fun):
+        item: rpc = replace(self)
+
+        if item.name is None:
+            item = replace(item, name=fun.__qualname__)
+
+        if item.kind is None:
+            item = replace(item, kind=auto_callable_kind_reply(fun, is_method=item.is_method)[0])
+
+        if item.is_async is None:
+            is_async = inspect.iscoroutinefunction(fun)
+            item = replace(item, is_async=is_async)
+
+        if item.signature is None:
+            signature = inspect.signature(fun)
+            item = replace(item, signature=signature)
+
+        setattr(fun, '__rpc__', item)
+        return fun
 
 
-def _load_fun_parameters(fun, is_method=False):
-    signature = inspect.signature(fun)
+def collect(obj) -> List[Tuple[Any, rpc]]:
+    r: List[Tuple[rpc, Any]] = []
+    for x in dir(obj):
+        y = getattr(obj, x)
+        if hasattr(y, '__rpc__'):
+            r.append((y.__rpc__, y))
 
-    if signature.return_annotation == inspect.Signature.empty:
-        raise ValueError('Must supply return value')
-
-    params = OrderedDict()
-
-    trc().debug('%s %s %s %s %s',
-                inspect.ismethod(fun),
-                inspect.ismethoddescriptor(fun),
-                inspect.ismemberdescriptor(fun),
-                inspect.isgetsetdescriptor(fun),
-                is_method
-                )
-
-    trc().debug('%s', dir(fun))
-    trc('c').debug('%s', getattr(fun, '__class__', None))
-    trc('c').debug('%s', getattr(fun, '__module__', None))
-    trc('c').debug('%s', getattr(fun, '__qualname__', None))
-    trc('c').debug('%s', getattr(fun, '__name__', None))
-
-    for i, (_, param) in enumerate(signature.parameters.items()):
-        param: inspect.Parameter
-
-        if is_method and i == 0:
-            continue
-
-        if param.annotation == inspect.Parameter.empty:
-            trc().debug('%s', signature)
-            raise ValueError(f'No type for `{param.name}`')
-
-        if param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
-            params[param.name] = param.annotation
-        elif param.kind == inspect.Parameter.VAR_POSITIONAL:
-            params[param.name] = typing.List[param.annotation]
-        elif param.kind == inspect.Parameter.KEYWORD_ONLY:
-            params[param.name] = param.annotation
-        elif param.kind == inspect.Parameter.VAR_KEYWORD:
-            params[param.name] = typing.Dict[str, param.annotation]
-        else:
-            raise ValueError(f'Not supported: {param}')
-
-    trc().debug('%s', params)
-
-    return params, signature.return_annotation
-
-
-def auto_callable_fac(walker_args: Walker, walker_ret: Walker, fun, is_method=False):
-    params, reply = _load_fun_parameters(fun, is_method)
-
-    _, reply = auto_callable_kind_reply(fun, is_method=is_method)
-
-    reply = walker_ret.resolve(reply)
-
-    params_fac = []
-
-    for name, param in params.items():
-        item_factory = walker_args.resolve(param)
-
-        if walker_args.name == JSON_INTO:
-            params_fac.append(AnyAnyField(
-                name,
-                AnyAnyAttr(
-                    name,
-                    item_factory
-                ),
-            ))
-        elif walker_args.name == JSON_FROM:
-            params_fac.append(AnyAnyField(
-                name,
-                AnyAnyItem(
-                    name,
-                    item_factory
-                ),
-            ))
-        else:
-            raise NotImplementedError(walker_args.name)
-
-    if walker_args.name == JSON_INTO:
-        struct = AnyIntoStruct(params_fac)
-    elif walker_args.name == JSON_FROM:
-        struct = AnyFromStruct(params_fac)
-    else:
-        raise NotImplementedError(walker_args.name)
-
-    return struct, reply
-
-
-def auto_callable_kind_reply(fun, is_method=False):
-    _, reply = _load_fun_parameters(fun, is_method)
-
-    kind = Kind.Call
-
-    # the issue of setting __serde__ on function
-    # is that of it having 2 actual values:
-    # - the arguments (into/from)
-    # - return (into/from)
-
-    if hasattr(reply, '__origin__'):
-        if issubclass(reply.__origin__, typing.AsyncIterable) or issubclass(reply.__origin__, typing.Iterable):
-            kind = Kind.Iterator
-            vt, = get_args(reply)
-
-            reply = vt
-
-    return kind, reply
+    return r

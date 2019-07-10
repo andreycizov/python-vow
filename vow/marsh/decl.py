@@ -1,5 +1,4 @@
 import inspect
-from functools import wraps
 
 from typing import List, Type
 
@@ -7,9 +6,8 @@ from dataclasses import dataclass, is_dataclass, field
 
 from vow.marsh.base import Mapper, Fac
 from vow.marsh.helper import DECL_CALLABLE_ATTR
-from vow.marsh.walker import Walker, Serializers, Deferred, CallableSerializers
-from vow.rpc.decl import auto_callable_fac, auto_callable_kind_reply
-from xrpc.trace import trc
+from vow.marsh.walker import Walker, Serializers, Deferred, CallableSerializers, auto_callable_fac, \
+    auto_callable_kind_reply
 
 
 @dataclass
@@ -52,9 +50,9 @@ def get_serializers(name: str, *clss: Type) -> List[Mapper]:
     return walker.mappers(*factories)
 
 
-def get_mappers(name: str, *facs: Fac) -> List[Mapper]:
+def get_mappers(*facs: Fac) -> List[Mapper]:
     # todo specifically, walker is not required to have a name assigned to it.
-    walker = Walker(name)
+    walker = Walker(None)
 
     return walker.mappers(*facs)
 

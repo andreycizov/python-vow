@@ -99,7 +99,6 @@ class BottleEndpoint:
 
         return return_
 
-
     def __call__(self, **kwargs):
         return_ = self.parse_response()
 

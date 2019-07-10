@@ -6,11 +6,13 @@ from typing import AsyncIterable, Iterable
 from vow.marsh.decl import infer, get_serializers
 from vow.marsh.impl.json import JSON_FROM, JSON_INTO
 from vow.marsh.walker import Args
+from vow.rpc.decl import rpc
 from vow.rpc.wire import Header
 from xrpc.trace import trc
 
 
 class Methodist:
+    @rpc(is_method=True)
     @infer(JSON_INTO, JSON_FROM, is_method=True)
     def meth1(self, a: int, b: str) -> Header:
         pass
@@ -18,18 +20,22 @@ class Methodist:
 
 class TestDecl(unittest.TestCase):
     def test_decl_1(self):
+        @rpc()
         @infer(JSON_INTO, JSON_FROM)
         async def func1(a: int, b: str) -> AsyncIterable[Header]:
             pass
 
+        @rpc()
         @infer(JSON_INTO, JSON_FROM)
         def func2(a: int, b: str) -> Iterable[Header]:
             pass
 
+        @rpc()
         @infer(JSON_INTO, JSON_FROM)
         def func3(a: int, b: str) -> Header:
             pass
 
+        @rpc()
         @infer(JSON_INTO, JSON_FROM)
         def func4(a: int, b: str) -> AsyncIterable[Header]:
             pass
@@ -37,6 +43,7 @@ class TestDecl(unittest.TestCase):
         def func5(a: int, b) -> AsyncIterable[Header]:
             pass
 
+        @rpc()
         @infer(JSON_INTO, JSON_FROM)
         def func6(a: int, *b: int, d: int = 6, **kwargs: Header) -> AsyncIterable[Header]:
             pass
